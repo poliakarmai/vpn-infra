@@ -1,0 +1,26 @@
+# Secrets
+.env
+*.key
+*.pem
+config.json
+*.bak
+*.bak.*
+
+# Data
+*.sqlite
+*.db
+__pycache__/
+*.pyc
+*.pyo
+
+# Snapshots & backups
+snapshots/
+backups/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,84 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "tag": "vless-reality-seller",
+      "listen": "0.0.0.0",
+      "port": 4443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "www.cloudflare.com:443",
+          "xver": 0,
+          "serverNames": [
+            "www.cloudflare.com"
+          ],
+          "privateKey": "YOUR_X25519_PRIVATE_KEY",
+          "shortIds": [
+            "YOUR_SHORT_ID"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "metadataOnly": false
+      }
+    },
+    {
+      "tag": "vless-reality-backup",
+      "listen": "0.0.0.0",
+      "port": 8445,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "www.apple.com:443",
+          "xver": 0,
+          "serverNames": [
+            "www.apple.com"
+          ],
+          "privateKey": "mIXgfH_N9-B4SQZcg_WrBffZDXIclaDDzaTB2J-XOlY",
+          "shortIds": [
+            "1e1edaeb2f251ae2",
+            "68cb849a82f559a7"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "metadataOnly": false
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    }
+  ]
+}
