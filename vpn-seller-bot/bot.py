@@ -294,6 +294,10 @@ T = {
     "admin_popular_plan":   {"ru": "⭐ Популярный план:",            "en": "⭐ Popular plan:"},
     "admin_sparkline":      {"ru": "📈 Доход по дням (7д):",        "en": "📈 Daily revenue (7d):"},
     "admin_sparkline_ton":  {"ru": "{} TON",                        "en": "{} TON"},
+    # Proxy flow (scout audit fix F6)
+    "btn_check":            {"ru": "✅ Я оплатил",                    "en": "✅ I paid"},
+    "invoice_msg":          {"ru": "💎 **Оплата через CryptoBot**\n\nСумма: {amount} {currency} (~${usd})\n1. Нажми «Оплатить»\n2. Оплати в @CryptoBot\n3. Вернись и нажми «Я оплатил»",
+                                  "en": "💎 **Pay via CryptoBot**\n\nAmount: {amount} {currency} (~${usd})\n1. Tap «Pay»\n2. Pay in @CryptoBot\n3. Come back and tap «I paid»"},
 }
 
 LANG_DEFAULT = os.environ.get("LANG_DEFAULT", "ru").strip()
@@ -1790,7 +1794,10 @@ async def cmd_promo(message: Message):
     if not ok:
         await message.reply(t(msg_key, lang))
         return
-    promo_redeem(message.from_user.id, code)
+    # Scout audit fix F8: TOCTOU — теперь проверяем возврат promo_redeem
+    if not promo_redeem(message.from_user.id, code):
+        await message.reply(t("promo_expired", lang))
+        return
     row = promo_get(code)
     await message.reply(
         f"{t('promo_activated', lang)} {code}\n"
