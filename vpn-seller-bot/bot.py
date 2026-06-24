@@ -752,15 +752,43 @@ def promo_can_redeem(tg_id: int, code: str) -> tuple[bool, str]:
 
 
 def promo_redeem(tg_id: int, code: str):
+    """Атомарный redeem промокода. Возвращает True если успешно."""
     code = normalize_promo(code)
     now = int(time.time())
     with db() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO promo_redemptions (tg_id, code, redeemed_at) VALUES (?,?,?)",
-            (tg_id, code, now),
+        # Check promo exists and is active
+        promo = conn.execute(
+            "SELECT max_uses, used_count, valid_from, valid_until FROM promo_codes WHERE code=?",
+            (code,)
+        ).fetchone()
+        if not promo:
+            return False
+        if promo["valid_from"] and now < int(promo["valid_from"]):
+            return False
+        if promo["valid_until"] and now > int(promo["valid_until"]):
+            return False
+        
+        # Atomic: increment only if under limit
+        cur = conn.execute(
+            "UPDATE promo_codes SET used_count = used_count + 1 WHERE code=? AND used_count < max_uses",
+            (code,)
         )
-        conn.execute("UPDATE promo_codes SET used_count=used_count+1 WHERE code=?", (code,))
+        if cur.rowcount == 0:
+            return False  # limit reached or race lost
+        
+        # Check user hasn't already used this code
+        try:
+            conn.execute(
+                "INSERT INTO promo_redemptions (tg_id, code, redeemed_at) VALUES (?,?,?)",
+                (tg_id, code, now),
+            )
+        except sqlite3.IntegrityError:
+            # Already redeemed — rollback the used_count increment
+            conn.rollback()
+            return False
+        
         conn.commit()
+        return True
 
 
 def promo_apply_price(usdt_price: float, code: str) -> tuple[float, int, str]:
@@ -1175,12 +1203,16 @@ async def provision_access(bot: Bot, chat_id: int, tg_id: int, days: int = SUB_D
             if row and row["referrer_tg_id"]:
                 referrer_id = row["referrer_tg_id"]
         if referrer_id:
+            # Prevent self-referral
+            if int(referrer_id) == int(tg_id):
+                referrer_id = None
+        if referrer_id:
             try:
                 # Give bonus to referrer (one-time per referral)
                 import json as _json
                 with db() as conn:
                     already = conn.execute(
-                        "SELECT 1 FROM invoices WHERE tg_id=? AND status='paid' AND fulfilled_at IS NOT NULL",
+                        "SELECT 1 FROM invoices WHERE tg_id=? AND status='paid' AND paid_at IS NOT NULL",
                         (tg_id,)
                     ).fetchone()
                 if not already:
@@ -1208,7 +1240,8 @@ async def provision_access(bot: Bot, chat_id: int, tg_id: int, days: int = SUB_D
         ok, msg = rebuild_and_restart_xray()
         if not ok:
             log.error("xray rebuild/restart failed: %s", msg)
-            await bot.send_message(chat_id, f"{t('support_xray_fail', lang)}\n{msg}")
+            await bot.send_message(chat_id, f"❌ {t('support_xray_fail', lang)}\n{msg}")
+            return  # ⚠️ Stop — don't send broken config to client
 
         # Refresh main screen first
         await upsert_main_message(bot, chat_id, tg_id)
@@ -2235,7 +2268,6 @@ async def on_callback(query: CallbackQuery):
                 server=PROXY_SERVER, port=PROXY_PORT, secret=PROXY_SECRET, expires=expires))
             return
         # Показать описание и кнопку покупки
-        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=t("btn_proxy", lang), callback_data="buy_proxy_l1")],
         ])
