@@ -1,0 +1,21 @@
+[Unit]
+Description=VPN Core Xray (seller-managed VLESS+REALITY)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/vpn-core/bin/xray run -config /opt/vpn-core/conf/config.json
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=1048576
+
+# C3 fix: sandbox (без SystemCallFilter — Xray/Go требует широкий спектр)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/vpn-core/conf /opt/vpn-core/logs
+
+[Install]
+WantedBy=multi-user.target

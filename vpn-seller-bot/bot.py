@@ -8,6 +8,7 @@ import subprocess
 import time
 import uuid
 import shutil
+import socket
 
 import httpx
 import qrcode
@@ -162,7 +163,7 @@ T = {
     "ref_desc":             {"ru": "Пригласи друга — получи +{} дней VPN за каждого, кто оплатит подписку.", "en": "Invite a friend — get +{} VPN days for each who pays."},
     "ref_your_link":        {"ru": "Твоя ссылка:",                  "en": "Your link:"},
     "ref_invited":          {"ru": "Приглашено: {} чел.",          "en": "Invited: {}"},
-    "ref_bonus_note":       {"ru": "Бонус начисляется автоматически при первой оплате реферала.", "en": "Bonus is credited automatically on first payment by referral."},
+    "ref_bonus_note":       {"ru": "Бонус начисляется автоматически при каждой оплате реферала.", "en": "Bonus is credited automatically on each payment by referral."},
     "ref_bonus_msg":        {"ru": "🎁 Твой друг оплатил подписку! +{} дней VPN подарено.\nПодписка продлена до: {}", "en": "🎁 Your friend paid for a subscription! +{} VPN days gifted.\nSubscription extended to: {}"},
 
     # ── Help ──
@@ -985,7 +986,8 @@ def remove_wg_peer(pubkey: str) -> bool:
                 if not skip:
                     f.write(line)
         return True
-    except Exception:
+    except Exception as e:
+        log.debug(f"_get_server_pubkey failed: {e}")
         return False
 
 
@@ -996,7 +998,8 @@ def _get_server_pubkey() -> str:
     try:
         priv = subprocess.run(["cat", WG_SERVER_PRIVKEY_PATH], capture_output=True, text=True, timeout=5)
         return subprocess.run(["wg", "pubkey"], input=priv.stdout, capture_output=True, text=True, timeout=5).stdout.strip()
-    except Exception:
+    except Exception as e:
+        log.debug(f"_get_server_pubkey_str failed: {e}")
         return "UNKNOWN"
 
 
@@ -1212,31 +1215,23 @@ async def provision_access(bot: Bot, chat_id: int, tg_id: int, days: int = SUB_D
                 referrer_id = None
         if referrer_id:
             try:
-                # Give bonus to referrer (one-time per referral)
-                import json as _json
-                with db() as conn:
-                    already = conn.execute(
-                        "SELECT 1 FROM invoices WHERE tg_id=? AND status='paid' AND paid_at IS NOT NULL",
-                        (tg_id,)
-                    ).fetchone()
-                if not already:
-                    # First payment — grant referral bonus
-                    ref_sub = latest_sub(referrer_id)
-                    if ref_sub and ref_sub["active"] and ref_sub["expires_at"] > int(time.time()):
-                        _conn_ref = db()
-                        ref_lang = get_lang(_conn_ref, referrer_id)
-                        _conn_ref.execute(
-                            "UPDATE subscriptions SET expires_at=expires_at+? WHERE id=?",
-                            (REFERRAL_BONUS_DAYS * 86400, ref_sub["id"]),
-                        )
-                        _conn_ref.commit()
-                        _conn_ref.close()
-                        log.info("Referral bonus: +%d days for tg_id=%s (referred by %s)", REFERRAL_BONUS_DAYS, referrer_id, tg_id)
-                        await bot.send_message(
-                            referrer_id,
-                            t("ref_bonus_msg", ref_lang, REFERRAL_BONUS_DAYS,
-                              time.strftime('%Y-%m-%d %H:%M', time.localtime(ref_sub['expires_at'] + REFERRAL_BONUS_DAYS * 86400))),
-                        )
+                # Give bonus to referrer (every payment)
+                ref_sub = latest_sub(referrer_id)
+                if ref_sub and ref_sub["active"] and ref_sub["expires_at"] > int(time.time()):
+                    _conn_ref = db()
+                    ref_lang = get_lang(_conn_ref, referrer_id)
+                    _conn_ref.execute(
+                        "UPDATE subscriptions SET expires_at=expires_at+? WHERE id=?",
+                        (REFERRAL_BONUS_DAYS * 86400, ref_sub["id"]),
+                    )
+                    _conn_ref.commit()
+                    _conn_ref.close()
+                    log.info("Referral bonus: +%d days for tg_id=%s (referred by %s)", REFERRAL_BONUS_DAYS, referrer_id, tg_id)
+                    await bot.send_message(
+                        referrer_id,
+                        t("ref_bonus_msg", ref_lang, REFERRAL_BONUS_DAYS,
+                          time.strftime('%Y-%m-%d %H:%M', time.localtime(ref_sub['expires_at'] + REFERRAL_BONUS_DAYS * 86400))),
+                    )
             except Exception as e:
                 log.warning("Referral bonus failed for tg_id=%s: %s", tg_id, e)
         sub = create_or_extend_sub(tg_id, client_uuid, total_days)
@@ -1427,9 +1422,9 @@ async def upsert_main_message(bot: Bot, chat_id: int, tg_id: int):
         try:
             await bot.edit_message_text(text, chat_id=chat_id, message_id=int(main_message_id), reply_markup=kb_main(lang))
             return
-        except Exception:
+        except Exception as e:
             # message might be deleted/too old/not editable; fall back to sending a new one
-            pass
+            log.debug(f"edit_message failed (falling back to send): {e}")
 
     msg = await bot.send_message(chat_id, text, reply_markup=kb_main(lang))
     with db() as conn:
@@ -1691,9 +1686,7 @@ async def cmd_health_handler(message: Message):
     if tg_id not in ADMIN_IDS:
         await message.reply(t("health_public", LANG_DEFAULT))
         return
-    # Admin gets full health
-    await cmd_admin(message)  # reuse admin handler with subcmd detection
-    # But we need to handle /health specially
+    # Admin: single health check (no double-call — audit fix C1)
     with db() as conn:
         active = conn.execute(
             "SELECT COUNT(*) FROM subscriptions WHERE active=1 AND expires_at > strftime('%s','now')"
@@ -1790,12 +1783,9 @@ async def cmd_promo(message: Message):
         await message.reply(t("promo_usage", lang))
         return
     code = normalize_promo(parts[1])
-    ok, msg_key = promo_can_redeem(message.from_user.id, code)
-    if not ok:
-        await message.reply(t(msg_key, lang))
-        return
-    # Scout audit fix F8: TOCTOU — теперь проверяем возврат promo_redeem
-    if not promo_redeem(message.from_user.id, code):
+    # Audit fix C2: single atomic call — no TOCTOU
+    result = promo_redeem(message.from_user.id, code)
+    if not result:
         await message.reply(t("promo_expired", lang))
         return
     row = promo_get(code)
@@ -2472,7 +2462,8 @@ def list_backups() -> list[str]:
             reverse=True
         )
         return files
-    except Exception:
+    except Exception as e:
+        log.debug(f"list_backups failed: {e}")
         return []
 
 
@@ -2544,7 +2535,7 @@ async def cmd_test(message: Message):
     # 2. VLESS port
     if SERVER_IP and VLESS_PORT:
         try:
-            sock = __import__('socket').socket(__import__('socket').AF_INET, __import__('socket').SOCK_STREAM)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(3)
             result = sock.connect_ex((SERVER_IP, VLESS_PORT))
             sock.close()
@@ -2559,7 +2550,7 @@ async def cmd_test(message: Message):
     # 3. WG port
     if SERVER_IP and WG_PORT:
         try:
-            sock = __import__('socket').socket(__import__('socket').AF_INET, __import__('socket').SOCK_STREAM)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(3)
             result = sock.connect_ex((SERVER_IP, WG_PORT))
             sock.close()
