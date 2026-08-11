@@ -1,5 +1,6 @@
 # Secrets
 .env
+*.env
 *.key
 *.pem
 config.json
@@ -9,6 +10,8 @@ config.json
 # Data
 *.sqlite
 *.db
+data/*.sqlite
+data/*.db
 __pycache__/
 *.pyc
 *.pyo
