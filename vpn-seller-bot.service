@@ -1,0 +1,16 @@
+[Unit]
+Description=VPN Seller Bot (CryptoBot TON -> 3x-ui VLESS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/vpn-seller-bot
+ExecStart=/opt/vpn-seller-bot/.venv/bin/python /opt/vpn-seller-bot/bot.py
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
