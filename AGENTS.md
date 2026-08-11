@@ -1,99 +1,96 @@
 # AGENTS.md — VPN Infra
 
-> Навигация для AI-агентов. VPN-инфраструктура на VLESS+REALITY.
+> Навигация для AI-агентов. VPN-инфраструктура: VLESS+REALITY + MTProto + WireGuard.
 
 ## Что это
 
-Полноценная VPN-инфраструктура: Xray-сервер (VLESS+REALITY), Telegram-бот для продажи ключей, админ-панель, мониторинг.  
-Продакшен: ~10 активных клиентов.
+Продакшен VPN-инфраструктура на сервере 2.27.48.142 (Хельсинки):
+- **Xray** — VLESS+REALITY (порты 4443, 8445)
+- **MTProto** — отдельный сервис `mtproto-proxy` (порт 443/TCP)
+- **WireGuard** — порт 51820/UDP
+- **Telegram-бот @Poliakarbot** — продажа ключей (Stars + CryptoBot), триал 3 дня
 
 ## Структура
 
 ```
-vpn-infra/
+vpn-infra/                      ← ЭТОТ репозиторий (документация + код)
 ├── vpn-core/
-│   ├── config.template.json   ← Шаблон конфига Xray
-│   └── vpn-watch.py           ← Мониторинг: трафик, клиенты, статус
+│   ├── config.template.json    ← Шаблон конфига Xray (VLESS 4443 + 8445)
+│   └── vpn-watch.py            ← Мониторинг: трафик, клиенты, статус
 ├── vpn-seller-bot/
-│   ├── bot.py                 ← Telegram-бот для продажи VPN
-│   ├── admin_key.py           ← Админка: создание/удаление ключей
-│   ├── requirements.txt       ← Зависимости
-│   └── ROADMAP.md             ← План развития
-├── .gitignore
-└── README.md
+│   ├── bot.py                  ← Telegram-бот (~2800 строк)
+│   ├── admin_key.py            ← CLI-админка: выдача ключей
+│   ├── requirements.txt
+│   └── ROADMAP.md
+├── openwiki/                   ← OpenWiki-документация
+├── systemd/                    ← Systemd-юниты
+├── README.md
+└── AGENTS.md                   ← Этот файл
+
+/opt/vpn-seller-bot/            ← ПРОДАКШЕН-инсталляция бота
+/opt/vpn-core/conf/             ← ПРОДАКШЕН-конфиг Xray
+/opt/mtprotoproxy/              ← MTProto прокси (отдельный сервис)
 ```
 
 ## Ключевые файлы
 
 | Файл | Назначение |
 |------|-----------|
-| `vpn-watch.py` | Мониторинг сервера: трафик (RX/TX), подключённые клиенты, статус сервиса Xray |
-| `bot.py` | Telegram-бот: продажа ключей, оплата через Telegram Stars, выдача конфигов |
-| `admin_key.py` | CLI-админка: `list`, `add <user>`, `remove <user>`, `usage <user>` |
+| `bot.py` | Telegram-бот: оплата (Stars/CryptoBot), выдача VLESS/WG/MTProto |
+| `admin_key.py` | CLI: `admin_key.py <tg_id> <days>` — выдать ключ без бота |
+| `config.template.json` | Шаблон Xray: VLESS 4443 + 8445 (оба с REALITY) |
+| `vpn-watch.py` | Мониторинг трафика и подключений |
 
-## Как запускать
-
-```bash
-# Мониторинг
-python3 vpn-core/vpn-watch.py
-
-# Telegram-бот
-cd vpn-seller-bot
-python3 bot.py
-
-# Админка (выдача ключа)
-python3 admin_key.py add new_user_123
-python3 admin_key.py list
-python3 admin_key.py usage new_user_123
-```
-
-## Как развернуть с нуля
+## Продакшен-сервисы
 
 ```bash
-cd ~/vpn-infra
-# Установка Xray (см. README.md)
-bash install.sh
-# Копировать config.template.json → /usr/local/etc/xray/config.json
-# Подставить свой REALITY private key + short_id
-systemctl start xray
+# Xray
+sudo systemctl status vpn-core-xray
+
+# Бот (СИСТЕМНЫЙ юнит, не --user!)
+sudo systemctl status vpn-seller-bot
+
+# MTProto прокси
+sudo systemctl status mtproto-proxy
 ```
 
-## Где что лежит
+**⚠️ Бот — системный юнит.** `systemctl --user status vpn-seller-bot` его НЕ видит. Всегда `sudo systemctl`.
+
+## Где что лежит (продакшен)
 
 | Данные | Место |
 |--------|-------|
-| Конфиг Xray | `/usr/local/etc/xray/config.json` |
-| Ключи клиентов | Внутри config.json (clients[]) |
-| Логи Xray | `/var/log/xray/` |
+| Конфиг Xray | `/opt/vpn-core/conf/config.json` |
+| Шаблон Xray | `/opt/vpn-core/conf/config.template.json` |
+| Бот .env | `/opt/vpn-seller-bot/.env` |
+| БД бота | `/opt/vpn-seller-bot/data/vpn_seller.sqlite` |
+| MTProto конфиг | `/opt/mtprotoproxy/config.py` |
+| Логи Xray | `sudo journalctl -u vpn-core-xray` |
+| Логи бота | `sudo journalctl -u vpn-seller-bot` |
+
+## Инварианты
+
+1. **VLESS-ссылки ОБЯЗАНЫ содержать:**
+   - `headerType=none` — без него клиенты не подключаются (V2RayTun, Streisand)
+   - `encryption=none`, `fp=firefox`, `spx=%2F`, `allowInsecure=1`
+   - Проверять во ВСЕХ трёх функциях: `build_vless_link()` (main), `build_vless_backup_link()`, `admin_key.py`
+2. **MTProto — отдельный сервис, не в Xray.** Xray 26.x не поддерживает MTProto.
+3. **Конфиг Xray — не в репозитории.** В Git только шаблон. `config.json` в `/opt/`.
+4. **rebuild_xray() синхронизирует ВСЕ inbounds**, не только [0].
+5. **Бот — системный юнит.** Preflight.py его не видит.
+6. **PBK проверять через криптографию.** Не доверять `.env` — вычислить из privateKey Xray.
 
 ## Конвенции
 
 - Python 3.11+
-- VLESS+REALITY (не VLESS+XTLS — лучше обходит DPI)
-- Ключи клиентов — UUID + short_id
-- Telegram Stars для оплаты (fragment.com → TON)
-- Безопасность: fail2ban, порт SSH на 29001 (не 22)
-
-## Инварианты
-
-1. **VLESS+REALITY, не XTLS.** REALITY лучше обходит DPI.
-2. **Ключи = UUID + short_id.** Никаких паролей.
-3. **Оплата через Telegram Stars.** Не TON напрямую — через fragment.com.
-4. **Конфиг Xray — не в репозитории.** `config.json` в `/usr/local/etc/xray/`, в Git только шаблон.
+- VLESS+REALITY (не XTLS)
+- Оплата: Telegram Stars (XTR) + CryptoBot (TON/USDT)
+- SSH: порт 2091 (не 22)
+- Hermes в песочнице — `/opt/` доступен только через `sudo`
 
 ## Критерии готовности
 
-- [ ] `systemctl status xray` — active
-- [ ] `python3 vpn-core/vpn-watch.py` — без ошибок
-- [ ] `python3 admin_key.py list` — показывает клиентов
-
-## OpenWiki
-
-This repository has documentation located in the /openwiki directory.
-
-Start here:
-- [OpenWiki quickstart](openwiki/quickstart.md)
-
-OpenWiki includes repository overview, architecture notes, domain concepts, operations, integrations, testing guidance, and source maps.
-
-When working in this repository, read the OpenWiki quickstart first, then follow its links to the relevant architecture, workflow, domain, operation, and testing notes.
+- [ ] `sudo systemctl is-active vpn-core-xray vpn-seller-bot mtproto-proxy` — все active
+- [ ] `sudo python3 vpn-seller-bot/admin_key.py list` → показывает клиентов
+- [ ] `sudo grep -c headerType vpn-seller-bot/bot.py` → 2
+- [ ] `sudo grep -c headerType vpn-seller-bot/admin_key.py` → 1

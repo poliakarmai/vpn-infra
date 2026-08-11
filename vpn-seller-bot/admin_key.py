@@ -64,6 +64,7 @@ def build_vless_link(client_uuid: str, name: str = "vpn") -> str:
         "security": "reality",
         "encryption": "none",
         "sni": xp["sni"],
+        "headerType": "none",
         "fp": VLESS_FINGERPRINT,
         "pbk": xp["pbk"],
         "sid": xp["sid"],
@@ -128,7 +129,9 @@ def rebuild_xray():
 
     with open("/opt/vpn-core/conf/config.template.json", "r") as f:
         cfg = json.load(f)
-    cfg["inbounds"][0]["settings"]["clients"] = clients
+    # Sync ALL inbounds with the same clients
+    for inbound in cfg["inbounds"]:
+        inbound["settings"]["clients"] = clients
 
     # Atomic write
     tmp = XRAY_CONFIG_PATH + ".tmp"
