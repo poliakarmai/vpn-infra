@@ -27,3 +27,7 @@ backups/
 .vscode/
 .idea/
 *.swp
+
+# Runtime dirs
+.venv/
+data/
