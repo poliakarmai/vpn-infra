@@ -52,7 +52,7 @@ The VPN infrastructure consists of four main components that work together to pr
 
 ## Component Details
 
-### 1. Telegram Bot (`vpn-seller-bot/bot.py`)
+### 1. Telegram Bot (`bot.py`)
 
 The central orchestration point. Built with **aiogram 3.4+**.
 
@@ -79,7 +79,7 @@ The central orchestration point. Built with **aiogram 3.4+**.
 - Atomic write with `.bak` rollback on validation failure
 - WireGuard peer addition/removal via `wg set` and config file manipulation
 
-### 2. CLI Admin Tool (`vpn-seller-bot/admin_key.py`)
+### 2. CLI Admin Tool (`admin_key.py`)
 
 A standalone script for granting VPN keys without the bot. Useful for:
 - Creating admin/backup keys
@@ -149,7 +149,7 @@ Writes JSON status to `/opt/vpn-core/conf/vpn-watch-status.json` read by the bot
 
 | Component | File | Key Lines |
 |---|---|---|
-| Bot entry & startup | `/vpn-seller-bot/bot.py` | L2660–2779 |
+| Bot entry & startup | `/bot.py` | L2660–2779 |
 | DB schema & migration | same | L412–547 |
 | Xray config management | same | L844–938 |
 | WireGuard management | same | L942–1032 |
@@ -158,11 +158,11 @@ Writes JSON status to `/opt/vpn-core/conf/vpn-watch-status.json` read by the bot
 | Admin commands | same | L1449–1672 |
 | Background scheduler | same | L2606–2657 |
 | i18n dictionary | same | L91–302 |
-| CLI admin tool | `/vpn-seller-bot/admin_key.py` | Full file (197 lines) |
+| CLI admin tool | `/admin_key.py` | Full file (197 lines) |
 | Monitoring script | `/vpn-core/vpn-watch.py` | Full file (200 lines) |
 | Xray config template | `/vpn-core/config.template.json` | Full file (84 lines) |
 | systemd unit | `/systemd/vpn-core-xray.service` | Full file |
-| Roadmap | `/vpn-seller-bot/ROADMAP.md` | Full |
+| Roadmap | `/ROADMAP.md` | Full |
 
 ## Change Guidance
 

@@ -23,7 +23,7 @@ vpn-infra/
 ├── vpn-core/                    # Xray server + monitoring
 │   ├── config.template.json     # Xray config template (placeholders)
 │   └── vpn-watch.py             # Monitoring: service, port, traffic, conntrack
-├── vpn-seller-bot/              # Telegram bot for selling VPN keys
+├──               # Telegram bot for selling VPN keys
 │   ├── bot.py                   # Main bot (~2800 lines) — all handlers, provisioning, payments
 │   ├── admin_key.py             # CLI admin tool: grant keys without the bot
 │   ├── requirements.txt         # Python dependencies
@@ -40,8 +40,8 @@ vpn-infra/
 
 | File | Purpose | Start Reading |
 |---|---|---|
-| `vpn-seller-bot/bot.py` | All Telegram bot logic: commands, callbacks, payments, provisioning, monitoring, backups | ~L1449 (handlers), ~L2660 (main entry) |
-| `vpn-seller-bot/admin_key.py` | Standalone CLI for admin key grants (no bot needed) | Full file (197 lines) |
+| `bot.py` | All Telegram bot logic: commands, callbacks, payments, provisioning, monitoring, backups | ~L1449 (handlers), ~L2660 (main entry) |
+| `admin_key.py` | Standalone CLI for admin key grants (no bot needed) | Full file (197 lines) |
 | `vpn-core/vpn-watch.py` | Server monitoring: service health, port status, traffic rates, conntrack overflow detection | Full file (200 lines) |
 | `vpn-core/config.template.json` | Xray config template with two VLESS+REALITY inbounds | Full file (84 lines) |
 | `systemd/vpn-core-xray.service` | Secure systemd unit for Xray process | Full file |
