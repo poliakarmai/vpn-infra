@@ -20,8 +20,9 @@ import uuid
 from pathlib import Path
 
 # ── Загрузка .env ──
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(Path(__file__).resolve().parent / ".env")  # прод: /opt/vpn-seller-bot/.env
+load_dotenv(find_dotenv(usecwd=True) or None)  # fallback: .env в рабочем каталоге
 
 DB_PATH = os.environ.get("DB_PATH", "./data/vpn_seller.sqlite")
 XRAY_CONFIG_PATH = os.environ.get("XRAY_CONFIG_PATH", "/opt/vpn-core/conf/config.json")
@@ -176,13 +177,16 @@ def main():
         print("❌ SERVER_IP not set in .env", file=sys.stderr)
         sys.exit(1)
 
+    if args.dry_run:
+        # Никаких изменений: ни в БД, ни в Xray. Раньше grant_subscription()
+        # вызывался до этой проверки и оставлял активную подписку-мусор,
+        # которая при следующем rebuild_xray попадала в config.json.
+        print(f"[DRY RUN] Would grant {args.days}d to tg_id={args.tg_id}")
+        print(build_vless_link(str(uuid.uuid4()), args.name))
+        return
+
     sub_info = grant_subscription(args.tg_id, args.days, args.note)
     link = build_vless_link(sub_info["uuid"], args.name)
-
-    if args.dry_run:
-        print(f"[DRY RUN] Would grant {args.days}d to tg_id={args.tg_id}")
-        print(link)
-        return
 
     rebuild_xray()
 

@@ -59,10 +59,14 @@ python3 admin_key.py stats
 2. **Пользователи — SSOT в SQLite.** Не дублировать в JSON.
 3. **Conntrack overflow → авто-рестарт.** Мониторинг переполнения conntrack.
 4. **sudo: systemctl + wg.** Остальные команды по паролю.
+5. **`.env` ищем рядом со скриптом**, а не `parent.parent`: `admin_key.py` лежит в `/opt/vpn-seller-bot/` (прод) или `scripts/` (репо), `.env` — в `/opt/vpn-seller-bot/.env`. Старый `parent.parent` давал `/opt/.env` → `SERVER_IP not set`.
+6. **`--dry-run` не трогает ни БД, ни Xray.** Флаг проверяется ДО `grant_subscription()`: раньше dry-run оставлял активную подписку-мусор, которая при следующем `rebuild_xray()` попадала в `config.json`.
+7. **Ключ считается выданным только после живого теста:** локальный xray-клиент с этим uuid → `curl -x socks5h://127.0.0.1:<port> https://api.ipify.org` → `2.27.48.142`.
 
 ## Критерии готовности
 
-- [ ] `python3 admin_key.py stats` — показывает статистику
+- [ ] `sudo python3 /opt/vpn-seller-bot/admin_key.py <tg_id> 30 --dry-run` — печатает ссылку, подписок в БД не прибавилось
+- [ ] живой тест ключа: `curl` через socks даёт `2.27.48.142`
 - [ ] Бот отвечает на /start
 - [ ] Xray слушает порт 443
 - [ ] WireGuard активен
