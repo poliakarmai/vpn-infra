@@ -8,13 +8,6 @@ import subprocess
 import time
 import uuid
 import shutil
-import socket
-import urllib.parse
-import io
-import resource
-import tarfile
-import re
-import fcntl
 
 import httpx
 import qrcode
@@ -42,14 +35,8 @@ SUB_DAYS_30 = 30
 SUB_DAYS_90 = 90
 SUB_DAYS_180 = 180
 
-TRIAL_DAYS = int(os.environ.get("TRIAL_DAYS", "7"))
+TRIAL_MINUTES = int(os.environ.get("TRIAL_MINUTES", "30"))
 TRIAL_MAX_PER_USER = int(os.environ.get("TRIAL_MAX_PER_USER", "1"))
-
-# Telegram Stars prices (1 Star ≈ $0.0126 USD)
-STARS_PRICE_30 = int(os.environ.get("STARS_PRICE_30", "160"))   # ~$2.00
-STARS_PRICE_90 = int(os.environ.get("STARS_PRICE_90", "430"))   # ~$5.40
-STARS_PRICE_180 = int(os.environ.get("STARS_PRICE_180", "795")) # ~$10.00
-STARS_PRICE_PROXY = int(os.environ.get("STARS_PRICE_PROXY", "40"))  # ~$0.50
 
 ADMIN_IDS = {int(x) for x in os.environ.get("ADMIN_IDS", "319665243").split(",") if x.strip().isdigit()}
 REFERRAL_BONUS_DAYS = int(os.environ.get("REFERRAL_BONUS_DAYS", "7"))
@@ -62,16 +49,10 @@ XRAY_SERVICE = os.environ.get("XRAY_SERVICE", "vpn-core-xray")
 
 SERVER_IP = os.environ.get("SERVER_IP", "").strip()
 VLESS_PORT = int(os.environ.get("VLESS_PORT", "4443"))
-HYSTERIA_PORT = int(os.environ.get("HYSTERIA_PORT", "8444"))
 VLESS_SNI = os.environ.get("VLESS_SNI", "www.cloudflare.com").strip()
 VLESS_FINGERPRINT = os.environ.get("VLESS_FINGERPRINT", "chrome").strip()
 VLESS_PBK = os.environ.get("VLESS_PBK", "").strip()
 VLESS_SID = os.environ.get("VLESS_SID", "").strip()
-
-# MTProto Proxy
-PROXY_SERVER = os.environ.get("PROXY_SERVER", SERVER_IP).strip()
-PROXY_PORT = int(os.environ.get("PROXY_PORT", "8443"))
-PROXY_SECRET = os.environ.get("PROXY_SECRET", "").strip()
 
 # Backup Reality port (Level 2 anti-censorship)
 VLESS_BACKUP_PORT = int(os.environ.get("VLESS_BACKUP_PORT", "8445"))
@@ -126,7 +107,7 @@ T = {
 
     # ── Trial ──
     "trial_used":           {"ru": "Триал уже использован. Выбери тариф 30/90/180 дней.", "en": "Trial already used. Choose a 30/90/180 day plan."},
-    "trial_activated":      {"ru": "🎁 Триал активирован на {} дней.", "en": "🎁 Trial activated for {} days."},
+    "trial_activated":      {"ru": "🎁 Триал активирован на {} минут.", "en": "🎁 Trial activated for {} minutes."},
     "trial_active_until":   {"ru": "Активен до:",                  "en": "Active until:"},
     "trial_like_it":        {"ru": "Если понравилось — выбери тариф 30/90/180 дней на главном экране.", "en": "If you liked it — choose a 30/90/180 day plan on the main screen."},
 
@@ -171,14 +152,14 @@ T = {
     "ref_desc":             {"ru": "Пригласи друга — получи +{} дней VPN за каждого, кто оплатит подписку.", "en": "Invite a friend — get +{} VPN days for each who pays."},
     "ref_your_link":        {"ru": "Твоя ссылка:",                  "en": "Your link:"},
     "ref_invited":          {"ru": "Приглашено: {} чел.",          "en": "Invited: {}"},
-    "ref_bonus_note":       {"ru": "Бонус начисляется автоматически при каждой оплате реферала.", "en": "Bonus is credited automatically on each payment by referral."},
+    "ref_bonus_note":       {"ru": "Бонус начисляется автоматически при первой оплате реферала.", "en": "Bonus is credited automatically on first payment by referral."},
     "ref_bonus_msg":        {"ru": "🎁 Твой друг оплатил подписку! +{} дней VPN подарено.\nПодписка продлена до: {}", "en": "🎁 Your friend paid for a subscription! +{} VPN days gifted.\nSubscription extended to: {}"},
 
     # ── Help ──
     "help_title":           {"ru": "Инструкция по подключению",    "en": "Connection Guide"},
-    "help_android":         {"ru": "Android:\n1) Установи: v2rayNG или NekoBox\n2) В боте нажми «Мой QR / доступ»\n3) В приложении: Import/Scan QR или вставь VLESS+Hysteria2\n4) Включи профиль", "en": "Android:\n1) Install: v2rayNG or NekoBox\n2) In bot: press \"My QR / Access\"\n3) In app: Import/Scan QR or paste VLESS+Hysteria2\n4) Enable profile"},
+    "help_android":         {"ru": "Android:\n1) Установи: v2rayNG или NekoBox\n2) В боте нажми «Мой QR / доступ»\n3) В приложении: Import/Scan QR или вставь vless-ссылку\n4) Включи профиль", "en": "Android:\n1) Install: v2rayNG or NekoBox\n2) In bot: press \"My QR / Access\"\n3) In app: Import/Scan QR or paste vless link\n4) Enable profile"},
     "help_ios":             {"ru": "iPhone (iOS):\n1) Установи: Streisand или Shadowrocket (если есть)\n2) Импортируй QR/ссылку из «Мой QR / доступ»\n3) Включи профиль", "en": "iPhone (iOS):\n1) Install: Streisand or Shadowrocket (if available)\n2) Import QR/link from \"My QR / Access\"\n3) Enable profile"},
-    "help_windows":         {"ru": "Windows:\n1) Установи: v2rayN\n2) Импорт: vless-ссылка или QR\n3) Включи системный прокси/режим TUN (если нужно), затем подключись", "en": "Windows:\n1) Install: v2rayN\n2) Import: VLESS+Hysteria2 or QR\n3) Enable system proxy/TUN mode (if needed), then connect"},
+    "help_windows":         {"ru": "Windows:\n1) Установи: v2rayN\n2) Импорт: vless-ссылка или QR\n3) Включи системный прокси/режим TUN (если нужно), затем подключись", "en": "Windows:\n1) Install: v2rayN\n2) Import: vless link or QR\n3) Enable system proxy/TUN mode (if needed), then connect"},
     "help_macos":           {"ru": "macOS:\n1) Установи: Clash Verge / sing-box / FoXray (любой клиент с VLESS+REALITY)\n2) Импортируй QR/ссылку\n3) Подключись", "en": "macOS:\n1) Install: Clash Verge / sing-box / FoXray (any client with VLESS+REALITY)\n2) Import QR/link\n3) Connect"},
     "help_reimport":        {"ru": "Если не работает: удали старый профиль и импортируй QR заново.", "en": "Not working? Delete old profile and re-import QR."},
 
@@ -188,8 +169,8 @@ T = {
 
     # ── MTProto Proxy ──
     "proxy_title":          {"ru": "🍃 MTProto Прокси для Telegram", "en": "🍃 MTProto Proxy for Telegram"},
-    "proxy_desc":           {"ru": "• Цена: **$0.50** (⭐ Stars или 💎 TON)\n• Срок: 30 дней\n• Работает в обход блокировок Telegram\n• ⚠️ Прокси может иногда отваливаться (DPI). Это бюджетный вариант — без гарантии 100% uptime.\n• Если не работает — можно вернуться к VLESS VPN.", "en": "• Price: **$0.50** (⭐ Stars or 💎 TON)\n• Duration: 30 days\n• Bypasses Telegram blocks\n• ⚠️ Proxy may occasionally drop (DPI). Budget option — no 100% uptime guarantee.\n• If it stops working — you can switch back to VLESS VPN."},
-    "proxy_access":         {"ru": "🔑 Твой MTProto прокси:\n\nСервер: **{server}**\nПорт: **{port}**\nСекрет: `{secret}`\n\n🔗 Ссылка: tg://proxy?server={server}&port={port}&secret={secret}\n\n🌀 **Keenetic роутер:**\nИнтернет → Прокси-сервер → Добавить\nТип: MTProto\nСервер: {server}\nПорт: {port}\nСекрет: {secret}\n\nАктивен до: {expires}\n\n⚠️ Если перестал — порт 443.", "en": "🔑 Your MTProto proxy:\n\nServer: **{server}**\nPort: **{port}**\nSecret: `{secret}`\n\n🔗 Link: tg://proxy?server={server}&port={port}&secret={secret}\n\n🌀 **Keenetic router:**\nInternet → Proxy server → Add\nType: MTProto\nServer: {server}\nPort: {port}\nSecret: {secret}\n\nActive until: {expires}\n\n⚠️ If down — port 443."},
+    "proxy_desc":           {"ru": "• Цена: **$0.50** (эквивалент в TON по курсу)\n• Срок: 30 дней\n• Работает в обход блокировок Telegram\n• ⚠️ Прокси может иногда отваливаться (DPI). Это бюджетный вариант — без гарантии 100% uptime.\n• Если не работает — можно вернуться к VLESS VPN.", "en": "• Price: **$0.50** (TON equivalent at rate)\n• Duration: 30 days\n• Bypasses Telegram blocks\n• ⚠️ Proxy may occasionally drop (DPI). Budget option — no 100% uptime guarantee.\n• If it stops working — you can switch back to VLESS VPN."},
+    "proxy_access":         {"ru": "🔑 Твой MTProto прокси:\n\nСервер: **2.27.48.142**\nПорт: **8443**\nСекрет: `a905c98d3a3dc6d88e82428632aa98ab`\n\n🔗 Ссылка: tg://proxy?server=2.27.48.142&port=8443&secret=a905c98d3a3dc6d88e82428632aa98ab\n\n🌀 **Keenetic роутер:**\nИнтернет → Прокси-сервер → Добавить\nТип: MTProto\nСервер: 2.27.48.142\nПорт: 8443\nСекрет: a905c98d3a3dc6d88e82428632aa98ab\n\nАктивен до: {}\n\n⚠️ Если перестал — порт 443.", "en": "🔑 Your MTProto proxy:\n\nServer: **2.27.48.142**\nPort: **8443**\nSecret: `a905c98d3a3dc6d88e82428632aa98ab`\n\n🔗 Link: tg://proxy?server=2.27.48.142&port=8443&secret=a905c98d3a3dc6d88e82428632aa98ab\n\n🌀 **Keenetic router:**\nInternet → Proxy server → Add\nType: MTProto\nServer: 2.27.48.142\nPort: 8443\nSecret: a905c98d3a3dc6d88e82428632aa98ab\n\nActive until: {}\n\n⚠️ If down — port 443."},
     "proxy_no_sub":         {"ru": "❌ Нет активной подписки на прокси. Нажми кнопку чтобы оплатить.", "en": "❌ No active proxy subscription. Press button to pay."},
 
     "promo_usage":          {"ru": "Использование: /promo CODE",   "en": "Usage: /promo CODE"},
@@ -223,7 +204,7 @@ T = {
     "admin_health_title":   {"ru": "🏥 **Health Check**",          "en": "🏥 **Health Check**"},
     "admin_health_bot":     {"ru": "vpn-seller-bot: ✅ active",    "en": "vpn-seller-bot: ✅ active"},
     "admin_health_memory":  {"ru": "Память:",                      "en": "Memory:"},
-    "admin_help":           {"ru": "📋 **Админ-команды:**\n/admin stats — статистика\n/admin traffic — трафик (live)\n/admin health — health-check\n/admin issue <tg_id> <days> — выдать ключ\n/admin revoke <tg_id> — отозвать\n/admin broadcast <текст> — рассылка\n/admin backup — создать бэкап\n/admin restore [файл] — список/восстановление", "en": "📋 **Admin Commands:**\n/admin stats — stats\n/admin traffic — traffic (live)\n/admin health — health-check\n/admin issue <tg_id> <days> — issue key\n/admin revoke <tg_id> — revoke\n/admin broadcast <text> — broadcast\n/admin backup — create backup\n/admin restore [file] — list/restore"},
+    "admin_help":           {"ru": "📋 **Админ-команды:**\n/admin stats — статистика\n/admin issue <tg_id> <days> — выдать ключ\n/admin revoke <tg_id> — отозвать\n/admin broadcast <текст> — рассылка\n/admin health — health-check\n/admin backup — создать бэкап\n/admin restore [файл] — список/восстановление", "en": "📋 **Admin Commands:**\n/admin stats — stats\n/admin issue <tg_id> <days> — issue key\n/admin revoke <tg_id> — revoke\n/admin broadcast <text> — broadcast\n/admin health — health-check\n/admin backup — create backup\n/admin restore [file] — list/restore"},
 
     # ── Expiry notifications ──
     "expiry_days":          {"ru": "🌊 Привет! Твоя VPN-подписка истекает через {} дн. ({}).\nПродли сейчас — чтобы не остаться без доступа.", "en": "🌊 Hi! Your VPN subscription expires in {} days ({}).\nRenew now so you don't lose access."},
@@ -255,17 +236,6 @@ T = {
 
     # ── Invoice hidden message ──
     "invoice_hidden_msg":   {"ru": "После оплаты доступ выдастся автоматически. Если нет — нажми: Проверить оплату", "en": "Access granted automatically after payment. If not — press: Check Payment"},
-
-    # ── Telegram Stars ──
-    "stars_pay":            {"ru": "⭐ Telegram Stars",               "en": "⭐ Telegram Stars"},
-    "stars_desc":           {"ru": "Оплата звездами Telegram — быстро и без криптокошелька.", "en": "Pay with Telegram Stars — fast, no crypto wallet needed."},
-    "stars_invoice_title":  {"ru": "VPN {} дней",                     "en": "VPN {} days"},
-    "stars_invoice_desc":   {"ru": "VLESS+REALITY VPN на {} дней. Доступ выдаётся автоматически после оплаты.", "en": "VLESS+REALITY VPN for {} days. Access granted automatically after payment."},
-    "stars_payment_confirmed": {"ru": "✅ Оплата звездами подтверждена! Telegram charge id: {}", "en": "✅ Stars payment confirmed! Telegram charge id: {}"},
-    "stars_error":          {"ru": "❌ Ошибка при создании счёта Stars: {}", "en": "❌ Stars invoice error: {}"},
-    "payment_method_choice": {"ru": "Выбери способ оплаты:",          "en": "Choose payment method:"},
-    "btn_pay_stars":        {"ru": "⭐ Оплатить звездами",             "en": "⭐ Pay with Stars"},
-    "btn_pay_ton":          {"ru": "💎 TON (CryptoBot)",               "en": "💎 TON (CryptoBot)"},
 
     # ── /test diagnostics ──
     "test_title":           {"ru": "🔧 **Диагностика**",             "en": "🔧 **Diagnostics**"},
@@ -303,10 +273,6 @@ T = {
     "admin_popular_plan":   {"ru": "⭐ Популярный план:",            "en": "⭐ Popular plan:"},
     "admin_sparkline":      {"ru": "📈 Доход по дням (7д):",        "en": "📈 Daily revenue (7d):"},
     "admin_sparkline_ton":  {"ru": "{} TON",                        "en": "{} TON"},
-    # Proxy flow (scout audit fix F6)
-    "btn_check":            {"ru": "✅ Я оплатил",                    "en": "✅ I paid"},
-    "invoice_msg":          {"ru": "💎 **Оплата через CryptoBot**\n\nСумма: {amount} {currency} (~${usd})\n1. Нажми «Оплатить»\n2. Оплати в @CryptoBot\n3. Вернись и нажми «Я оплатил»",
-                                  "en": "💎 **Pay via CryptoBot**\n\nAmount: {amount} {currency} (~${usd})\n1. Tap «Pay»\n2. Pay in @CryptoBot\n3. Come back and tap «I paid»"},
 }
 
 LANG_DEFAULT = os.environ.get("LANG_DEFAULT", "ru").strip()
@@ -393,27 +359,10 @@ def kb_main(lang: str = "ru") -> InlineKeyboardMarkup:
     )
 
 
-async def run_async(cmd, timeout=10):
-    """Run subprocess without blocking asyncio event loop."""
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        return stdout.decode(), stderr.decode(), proc.returncode
-    except asyncio.TimeoutError:
-        proc.kill()
-        raise
-
-
 def db() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA cache_size=-8000")
-    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -490,10 +439,6 @@ def init_db():
             conn.execute("ALTER TABLE subscriptions ADD COLUMN wg_privkey TEXT")
         if "wg_pubkey" not in cols:
             conn.execute("ALTER TABLE subscriptions ADD COLUMN wg_pubkey TEXT")
-        # Migration: sub_type (proxy support)
-        if "sub_type" not in cols:
-            conn.execute("ALTER TABLE subscriptions ADD COLUMN sub_type TEXT")
-            log.info("Migration: added sub_type column to subscriptions")
 
         conn.execute(
             """
@@ -544,13 +489,6 @@ def init_db():
             );
             """
         )
-
-        # Performance indexes
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_subs_active_tg ON subscriptions(tg_id, active)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_subs_expires ON subscriptions(expires_at) WHERE active=1")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_tg_status ON invoices(tg_id, status)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_invoice_id ON invoices(invoice_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_referrer ON users(referrer_tg_id)")
 
         conn.commit()
 
@@ -708,15 +646,15 @@ def create_or_extend_sub(tg_id: int, new_uuid: str, days: int) -> sqlite3.Row:
     return latest_sub(tg_id)
 
 
-def create_or_extend_sub_trial(tg_id: int, new_uuid: str, days: int) -> sqlite3.Row:
-    """Create a trial subscription (does NOT extend paid ones)."""
+def create_or_extend_sub_trial(tg_id: int, new_uuid: str, minutes: int) -> sqlite3.Row:
+    """Create a short trial subscription (does NOT extend paid ones)."""
     now = int(time.time())
-    expires = now + int(days) * 86400
-    hp = str(uuid.uuid4())[:16]
+    expires = now + int(minutes) * 60
     with db() as conn:
+        # do not touch existing paid active sub; trial just becomes latest record but marked active.
         conn.execute(
-            "INSERT INTO subscriptions (tg_id, uuid, hysteria_pass, created_at, expires_at, active) VALUES (?,?,?,?,?,1)",
-            (tg_id, new_uuid, hp, now, expires),
+            "INSERT INTO subscriptions (tg_id, uuid, created_at, expires_at, active) VALUES (?,?,?,?,1)",
+            (tg_id, new_uuid, now, expires),
         )
         conn.commit()
     return latest_sub(tg_id)
@@ -744,43 +682,36 @@ def promo_get(code: str) -> sqlite3.Row | None:
         return conn.execute("SELECT * FROM promo_codes WHERE code=?", (code,)).fetchone()
 
 
+def promo_can_redeem(tg_id: int, code: str) -> tuple[bool, str]:
+    code = normalize_promo(code)
+    row = promo_get(code)
+    if not row:
+        return False, "promo_not_found"
+    now = int(time.time())
+    if row["expires_at"] and int(row["expires_at"]) < now:
+        return False, "promo_expired"
+    if row["max_uses"] is not None and int(row["used_count"]) >= int(row["max_uses"]):
+        return False, "promo_limit_reached"
+    with db() as conn:
+        used = conn.execute(
+            "SELECT 1 FROM promo_redemptions WHERE tg_id=? AND code=?",
+            (tg_id, code),
+        ).fetchone()
+    if used:
+        return False, "promo_already_used"
+    return True, "ok"
 
-def promo_redeem(tg_id: int, code: str) -> bool:
-    """Атомарный redeem промокода. Возвращает True если успешно."""
+
+def promo_redeem(tg_id: int, code: str):
     code = normalize_promo(code)
     now = int(time.time())
     with db() as conn:
-        # Check promo exists and is active
-        promo = conn.execute(
-            "SELECT max_uses, used_count, created_at, expires_at FROM promo_codes WHERE code=?",
-            (code,)
-        ).fetchone()
-        if not promo:
-            return False
-        if promo["expires_at"] and now > int(promo["expires_at"]):
-            return False
-        
-        # Atomic: increment only if under limit
-        cur = conn.execute(
-            "UPDATE promo_codes SET used_count = used_count + 1 WHERE code=? AND used_count < max_uses",
-            (code,)
+        conn.execute(
+            "INSERT OR IGNORE INTO promo_redemptions (tg_id, code, redeemed_at) VALUES (?,?,?)",
+            (tg_id, code, now),
         )
-        if cur.rowcount == 0:
-            return False  # limit reached or race lost
-        
-        # Check user hasn't already used this code
-        try:
-            conn.execute(
-                "INSERT INTO promo_redemptions (tg_id, code, redeemed_at) VALUES (?,?,?)",
-                (tg_id, code, now),
-            )
-        except sqlite3.IntegrityError:
-            # Already redeemed — rollback the used_count increment
-            conn.rollback()
-            return False
-        
+        conn.execute("UPDATE promo_codes SET used_count=used_count+1 WHERE code=?", (code,))
         conn.commit()
-        return True
 
 
 def promo_apply_price(usdt_price: float, code: str) -> tuple[float, int, str]:
@@ -845,9 +776,7 @@ def write_xray_config_from_template(active_uuids: list[str]):
         # keep config valid: one dummy client
         clients = [{"id": "00000000-0000-0000-0000-000000000000", "email": "disabled"}]
 
-    # Sync ALL inbounds with the same clients
-    for inbound in cfg["inbounds"]:
-        inbound["settings"]["clients"] = clients
+    cfg["inbounds"][0]["settings"]["clients"] = clients
 
     tmp_path = XRAY_CONFIG_PATH + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
@@ -927,6 +856,12 @@ def rebuild_and_restart_xray() -> tuple[bool, str]:
     return rebuild_and_reload_xray()
 
 
+def restart_xray():
+    # legacy: prefer rebuild_and_restart_xray()
+    import subprocess
+
+    subprocess.run(["sudo", "systemctl", "restart", XRAY_SERVICE], check=True)
+
 
 def get_next_wg_ip() -> str:
     """Allocate next available WireGuard client IP."""
@@ -942,7 +877,7 @@ def get_next_wg_ip() -> str:
     return f"{WG_SUBNET}.99"  # fallback
 
 
-def add_wg_peer(client_privkey: str, client_ip: str) -> tuple[bool, str]:
+def add_wg_peer(client_privkey: str, client_ip: str) -> bool:
     """Add WireGuard peer and reload config."""
     try:
         pubkey = subprocess.run(
@@ -975,8 +910,7 @@ def remove_wg_peer(pubkey: str) -> bool:
                 if not skip:
                     f.write(line)
         return True
-    except Exception as e:
-        log.debug(f"remove_wg_peer failed: {e}")
+    except Exception:
         return False
 
 
@@ -987,8 +921,7 @@ def _get_server_pubkey() -> str:
     try:
         priv = subprocess.run(["cat", WG_SERVER_PRIVKEY_PATH], capture_output=True, text=True, timeout=5)
         return subprocess.run(["wg", "pubkey"], input=priv.stdout, capture_output=True, text=True, timeout=5).stdout.strip()
-    except Exception as e:
-        log.debug(f"_get_server_pubkey_str failed: {e}")
+    except Exception:
         return "UNKNOWN"
 
 
@@ -1031,7 +964,6 @@ def build_vless_link(client_uuid: str) -> str:
         "pbk": VLESS_PBK,
         "sid": VLESS_SID,
         "sni": VLESS_SNI,
-        "headerType": "none",
         "fp": VLESS_FINGERPRINT,
         "spx": "/",
         "allowInsecure": "1",
@@ -1052,7 +984,6 @@ def build_vless_backup_link(client_uuid: str) -> str:
         "pbk": VLESS_BACKUP_PBK,
         "sid": VLESS_BACKUP_SID,
         "sni": VLESS_BACKUP_SNI,
-        "headerType": "none",
         "fp": VLESS_FINGERPRINT,
         "spx": "/",
         "allowInsecure": "1",
@@ -1060,12 +991,6 @@ def build_vless_backup_link(client_uuid: str) -> str:
     qs = urllib.parse.urlencode(params)
     name = urllib.parse.quote(f"vpn-backup ({VLESS_BACKUP_SNI})")
     return f"vless://{client_uuid}@{SERVER_IP}:{VLESS_BACKUP_PORT}?{qs}#{name}"
-
-
-def build_hysteria_link(password: str) -> str:
-    """Build hysteria2:// link for the Hysteria2 protocol."""
-    name = urllib.parse.quote("vpn-hy2")
-    return f"hysteria2://{password}@{SERVER_IP}:{HYSTERIA_PORT}?insecure=1&sni=vpn.poliakar.me#{name}"
 
 
 def build_xkeen_config(client_uuid: str) -> str:
@@ -1124,53 +1049,9 @@ def get_traffic_stats(lang: str = "ru") -> str:
                 months.append(f"{parts[2][:7]}: ↓{parts[3]} ↑{parts[4]}")
         if months:
             return t("traffic_header", lang) + "\n" + "\n".join(months)
-    except Exception as e:
-        log.warning(f'ex: {e}')
+    except Exception:
+        pass
     return ""
-
-
-def get_vpn_watch_status() -> dict:
-    """Read live VPN status from vpn-watch.py JSON output."""
-    try:
-        with open("/opt/vpn-core/conf/vpn-watch-status.json") as f:
-            data = json.load(f)
-        log.info("vpn-watch-status: traffic_active=%s, rx=%s, tx=%s", data.get("traffic_active"), data.get("rx_fmt"), data.get("tx_fmt"))
-        return data
-    except Exception as e:
-        log.warning("vpn-watch-status read failed: %s", e)
-        return {}
-
-
-def format_vpn_watch_status(status: dict, lang: str = "ru") -> str:
-    """Format VPN watch status for Telegram."""
-    if not status:
-        return "📡 Нет данных (запусти vpn-watch.py)"
-
-    ts = status.get("ts", 0)
-    ago = int(time.time() - ts) if ts else 999
-    ago_str = f"{ago}с назад" if ago < 120 else f"{ago // 60}м назад"
-
-    service = status.get("service", "?")
-    port = status.get("port_status", "?")
-    active = status.get("traffic_active", False)
-    rx = status.get("rx_fmt", "?")
-    tx = status.get("tx_fmt", "?")
-    errors = status.get("xray_errors", 0)
-
-    s_icon = "✅" if service == "active" else "❌"
-    p_icon = "✅" if port == "open" else "❌"
-    t_icon = "🟢" if active else "🔴"
-
-    lines = [
-        "📡 VPN Traffic Live",
-        f"🔄 Сервис: {s_icon} {service}",
-        f"🔌 Порт 4443: {p_icon} {port}",
-        f"📊 Трафик: {t_icon} {'идёт' if active else 'НЕТ'} ({rx}↓ {tx}↑)",
-        f"⚠️ Ошибок в логе: {errors}",
-        f"🕐 Обновлено: {ago_str}",
-    ]
-    return "\n".join(lines)
-
 
 def qr_png_bytes(data: str) -> bytes:
     img = qrcode.make(data)
@@ -1188,8 +1069,8 @@ async def provision_access(bot: Bot, chat_id: int, tg_id: int, days: int = SUB_D
         _conn = db()
         lang = get_lang(_conn, tg_id)
         _conn.close()
-    except Exception as e:
-        log.warning(f'ex: {e}')
+    except Exception:
+        pass
 
     async with PROVISION_LOCK:
         # Extend if active; otherwise create new UUID
@@ -1207,28 +1088,32 @@ async def provision_access(bot: Bot, chat_id: int, tg_id: int, days: int = SUB_D
             if row and row["referrer_tg_id"]:
                 referrer_id = row["referrer_tg_id"]
         if referrer_id:
-            # Prevent self-referral
-            if int(referrer_id) == int(tg_id):
-                referrer_id = None
-        if referrer_id:
             try:
-                # Give bonus to referrer (every payment)
-                ref_sub = latest_sub(referrer_id)
-                if ref_sub and ref_sub["active"] and ref_sub["expires_at"] > int(time.time()):
-                    _conn_ref = db()
-                    ref_lang = get_lang(_conn_ref, referrer_id)
-                    _conn_ref.execute(
-                        "UPDATE subscriptions SET expires_at=expires_at+? WHERE id=?",
-                        (REFERRAL_BONUS_DAYS * 86400, ref_sub["id"]),
-                    )
-                    _conn_ref.commit()
-                    _conn_ref.close()
-                    log.info("Referral bonus: +%d days for tg_id=%s (referred by %s)", REFERRAL_BONUS_DAYS, referrer_id, tg_id)
-                    await bot.send_message(
-                        referrer_id,
-                        t("ref_bonus_msg", ref_lang, REFERRAL_BONUS_DAYS,
-                          time.strftime('%Y-%m-%d %H:%M', time.localtime(ref_sub['expires_at'] + REFERRAL_BONUS_DAYS * 86400))),
-                    )
+                # Give bonus to referrer (one-time per referral)
+                import json as _json
+                with db() as conn:
+                    already = conn.execute(
+                        "SELECT 1 FROM invoices WHERE tg_id=? AND status='paid' AND fulfilled_at IS NOT NULL",
+                        (tg_id,)
+                    ).fetchone()
+                if not already:
+                    # First payment — grant referral bonus
+                    ref_sub = latest_sub(referrer_id)
+                    if ref_sub and ref_sub["active"] and ref_sub["expires_at"] > int(time.time()):
+                        _conn_ref = db()
+                        ref_lang = get_lang(_conn_ref, referrer_id)
+                        _conn_ref.execute(
+                            "UPDATE subscriptions SET expires_at=expires_at+? WHERE id=?",
+                            (REFERRAL_BONUS_DAYS * 86400, ref_sub["id"]),
+                        )
+                        _conn_ref.commit()
+                        _conn_ref.close()
+                        log.info("Referral bonus: +%d days for tg_id=%s (referred by %s)", REFERRAL_BONUS_DAYS, referrer_id, tg_id)
+                        await bot.send_message(
+                            referrer_id,
+                            t("ref_bonus_msg", ref_lang, REFERRAL_BONUS_DAYS,
+                              time.strftime('%Y-%m-%d %H:%M', time.localtime(ref_sub['expires_at'] + REFERRAL_BONUS_DAYS * 86400))),
+                        )
             except Exception as e:
                 log.warning("Referral bonus failed for tg_id=%s: %s", tg_id, e)
         sub = create_or_extend_sub(tg_id, client_uuid, total_days)
@@ -1236,16 +1121,13 @@ async def provision_access(bot: Bot, chat_id: int, tg_id: int, days: int = SUB_D
         ok, msg = rebuild_and_restart_xray()
         if not ok:
             log.error("xray rebuild/restart failed: %s", msg)
-            await bot.send_message(chat_id, f"❌ {t('support_xray_fail', lang)}\n{msg}")
-            return  # ⚠️ Stop — don't send broken config to client
+            await bot.send_message(chat_id, f"{t('support_xray_fail', lang)}\n{msg}")
 
         # Refresh main screen first
         await upsert_main_message(bot, chat_id, tg_id)
 
         link = build_vless_link(sub["uuid"])
         png = qr_png_bytes(link)
-        hy2_pass = sub["hysteria_pass"] if "hysteria_pass" in sub.keys() and sub["hysteria_pass"] else None
-        hy2_link = build_hysteria_link(hy2_pass) if hy2_pass else None
         extra = f"\n{t('payment_bonus', lang, bonus_days)}" if bonus_days else ""
         await bot.send_message(
             chat_id,
@@ -1253,47 +1135,8 @@ async def provision_access(bot: Bot, chat_id: int, tg_id: int, days: int = SUB_D
             f"{t('payment_active_until', lang)} {time.strftime('%Y-%m-%d %H:%M', time.localtime(sub['expires_at']))}"
             f"\n\n{t('payment_reimport', lang)}",
         )
-        # VLESS
-        await bot.send_message(chat_id, f"🔹 VLESS+REALITY\n`{link}`", parse_mode="Markdown")
+        await bot.send_message(chat_id, link)
         await bot.send_photo(chat_id, BufferedInputFile(png, filename="vpn.png"))
-        # Hysteria2
-        if hy2_link:
-            await bot.send_message(chat_id, f"🔸 Hysteria2\n`{hy2_link}`", parse_mode="Markdown")
-
-
-async def send_stars_invoice(bot: Bot, chat_id: int, tg_id: int, days: int, stars_amount: int, lang: str, sub_type: str = "vless"):
-    """Send Telegram Stars invoice and handle pre_checkout + successful_payment."""
-    try:
-        title = t("stars_invoice_title", lang, days)
-        description = t("stars_invoice_desc", lang, days)
-
-        # payload carries tariff metadata for successful_payment handler
-        import json
-        payload = json.dumps({"days": days, "tg_id": tg_id, "stars_amount": stars_amount, "sub_type": sub_type})
-
-        await bot.send_invoice(
-            chat_id=chat_id,
-            title=title,
-            description=description,
-            payload=payload,
-            provider_token="",  # Stars don't need provider token
-            currency="XTR",
-            prices=[{"label": f"VPN {days}d", "amount": stars_amount}],
-            start_parameter=f"vpn_{days}d",
-        )
-
-        await bot.send_message(
-            chat_id,
-            t("stars_desc", lang),
-            reply_markup=kb_main(lang),
-        )
-    except Exception as e:
-        log.exception("send_stars_invoice failed")
-        await bot.send_message(
-            chat_id,
-            t("stars_error", lang, str(e)),
-            reply_markup=kb_main(lang),
-        )
 
 
 async def auto_check_invoice(bot: Bot, chat_id: int, tg_id: int, invoice_id: str):
@@ -1303,8 +1146,8 @@ async def auto_check_invoice(bot: Bot, chat_id: int, tg_id: int, invoice_id: str
         _conn = db()
         lang = get_lang(_conn, tg_id)
         _conn.close()
-    except Exception as e:
-        log.warning(f'ex: {e}')
+    except Exception:
+        pass
 
     started = time.time()
     try:
@@ -1342,27 +1185,13 @@ async def auto_check_invoice(bot: Bot, chat_id: int, tg_id: int, invoice_id: str
                             meta = json.loads(row["meta"])
                             days = int(meta.get("days") or days)
                             bonus_days = int(meta.get("bonus_days") or 0)
-                    except Exception as e:
-                        log.warning(f'ex: {e}')
+                    except Exception:
+                        pass
 
                     if already:
                         return
 
-                    # Check if proxy invoice
-                    if meta.get("type") == "proxy":
-                        now = int(time.time())
-                        new_uuid = "proxy_" + str(tg_id)
-                        with db() as conn:
-                            conn.execute(
-                                "INSERT INTO subscriptions (tg_id, uuid, active, expires_at, sub_type, created_at) VALUES (?,?,1,?,?,?)",
-                                (tg_id, new_uuid, now + days*86400, 'proxy', now)
-                            )
-                            conn.commit()
-                        expires_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(now + days*86400))
-                        await bot.send_message(chat_id, t("proxy_access", lang).format(
-                            server=PROXY_SERVER, port=PROXY_PORT, secret=PROXY_SECRET, expires=expires_str))
-                    else:
-                        await provision_access(bot, chat_id, tg_id, days=days, bonus_days=bonus_days)
+                    await provision_access(bot, chat_id, tg_id, days=days, bonus_days=bonus_days)
                     with db() as conn:
                         conn.execute(
                             "UPDATE invoices SET fulfilled_at=? WHERE invoice_id=? AND fulfilled_at IS NULL",
@@ -1425,9 +1254,9 @@ async def upsert_main_message(bot: Bot, chat_id: int, tg_id: int):
         try:
             await bot.edit_message_text(text, chat_id=chat_id, message_id=int(main_message_id), reply_markup=kb_main(lang))
             return
-        except Exception as e:
+        except Exception:
             # message might be deleted/too old/not editable; fall back to sending a new one
-            log.debug(f"edit_message failed (falling back to send): {e}")
+            pass
 
     msg = await bot.send_message(chat_id, text, reply_markup=kb_main(lang))
     with db() as conn:
@@ -1445,8 +1274,8 @@ async def clear_keyboard(bot: Bot, chat_id: int, message_id: int | None):
         return
     try:
         await bot.edit_message_reply_markup(chat_id=chat_id, message_id=int(message_id), reply_markup=None)
-    except Exception as e:
-        log.warning(f'ex: {e}')
+    except Exception:
+        pass
 
 
 async def cmd_admin(message: Message):
@@ -1511,8 +1340,8 @@ async def cmd_admin(message: Message):
                     days = str(m.get("days", "30"))
                     if days in plan_counts:
                         plan_counts[days] += 1
-                except Exception as e:
-                    log.warning(f'ex: {e}')
+                except Exception:
+                    pass
             popular = max(plan_counts, key=plan_counts.get)
             popular_name = {"30": "30 дн", "90": "90 дн", "180": "180 дн"}.get(popular, popular)
             # Daily revenue sparkline (last 7 days)
@@ -1576,8 +1405,8 @@ async def cmd_admin(message: Message):
                 target_tg,
                 t("admin_issue_user_msg", target_lang, days, expires),
             )
-        except Exception as e:
-            log.warning(f'ex: {e}')
+        except Exception:
+            pass
 
     elif subcmd == "revoke":
         if len(parts) < 3:
@@ -1610,8 +1439,8 @@ async def cmd_admin(message: Message):
             try:
                 await message.bot.send_message(u["tg_id"], f"📢 {text}")
                 sent += 1
-            except Exception as e:
-                log.warning(f'ex: {e}')
+            except Exception:
+                pass
         await message.reply(t("admin_broadcast_sent", lang, sent, len(users)))
 
     elif subcmd == "health":
@@ -1619,11 +1448,9 @@ async def cmd_admin(message: Message):
             active = conn.execute(
                 "SELECT COUNT(*) FROM subscriptions WHERE active=1 AND expires_at > strftime('%s','now')"
             ).fetchone()[0]
-        xray_status = (await asyncio.to_thread(subprocess.run, ["systemctl", "is-active", "vpn-core-xray"], capture_output=True, text=True)).stdout.strip()
+        xray_status = subprocess.run(["systemctl", "is-active", "vpn-core-xray"], capture_output=True, text=True).stdout.strip()
         ok, test_msg = test_xray_config(XRAY_CONFIG_PATH)
         xray_icon = '✅' if xray_status == 'active' else '❌'
-        t_status = get_vpn_watch_status()
-        traffic_block = "\n\n" + format_vpn_watch_status(t_status, lang) if t_status else ""
         await message.reply(
             f"{t('admin_health_title', lang)}\n\n"
             f"{t('admin_health_bot', lang)}\n"
@@ -1631,12 +1458,7 @@ async def cmd_admin(message: Message):
             f"Xray config: {'✅ valid' if ok else '❌ ' + test_msg}\n"
             f"{t('admin_stats_active', lang)} {active}\n"
             f"{t('admin_health_memory', lang)} {get_mem_mb():.0f} MB"
-            f"{traffic_block}"
         )
-
-    elif subcmd == "traffic":
-        status = get_vpn_watch_status()
-        await message.reply(format_vpn_watch_status(status, lang))
 
     elif subcmd == "backup":
         ok, result = create_backup()
@@ -1689,12 +1511,14 @@ async def cmd_health_handler(message: Message):
     if tg_id not in ADMIN_IDS:
         await message.reply(t("health_public", LANG_DEFAULT))
         return
-    # Admin: single health check (no double-call — audit fix C1)
+    # Admin gets full health
+    await cmd_admin(message)  # reuse admin handler with subcmd detection
+    # But we need to handle /health specially
     with db() as conn:
         active = conn.execute(
             "SELECT COUNT(*) FROM subscriptions WHERE active=1 AND expires_at > strftime('%s','now')"
         ).fetchone()[0]
-    xray_status = (await asyncio.to_thread(subprocess.run, ["systemctl", "is-active", "vpn-core-xray"], capture_output=True, text=True)).stdout.strip()
+    xray_status = subprocess.run(["systemctl", "is-active", "vpn-core-xray"], capture_output=True, text=True).stdout.strip()
     ok, test_msg = test_xray_config(XRAY_CONFIG_PATH)
     xray_icon = '✅' if xray_status == 'active' else '❌'
     await message.reply(
@@ -1786,11 +1610,11 @@ async def cmd_promo(message: Message):
         await message.reply(t("promo_usage", lang))
         return
     code = normalize_promo(parts[1])
-    # Audit fix C2: single atomic call — no TOCTOU
-    result = promo_redeem(message.from_user.id, code)
-    if not result:
-        await message.reply(t("promo_expired", lang))
+    ok, msg_key = promo_can_redeem(message.from_user.id, code)
+    if not ok:
+        await message.reply(t(msg_key, lang))
         return
+    promo_redeem(message.from_user.id, code)
     row = promo_get(code)
     await message.reply(
         f"{t('promo_activated', lang)} {code}\n"
@@ -1857,8 +1681,8 @@ async def on_callback(query: CallbackQuery):
     # Always ack callbacks quickly; ignore if too old.
     try:
         await query.answer()
-    except Exception as e:
-        log.warning(f'ex: {e}')
+    except Exception:
+        pass
 
     async def create_invoice_for_days(days: int, usdt_price: float, promo_code: str | None = None):
         # apply promo if present
@@ -1924,54 +1748,13 @@ async def on_callback(query: CallbackQuery):
         if old and not old.done():
             old.cancel()
         AUTO_CHECK_TASKS[tg_id] = asyncio.create_task(auto_check_invoice(bot, query.message.chat.id, tg_id, invoice_id))
-        AUTO_CHECK_TASKS[tg_id].add_done_callback(lambda t, tid=tg_id: AUTO_CHECK_TASKS.pop(tid, None))
 
-    # Stars payment callbacks
-    if data in ("stars_buy_30", "stars_buy_90", "stars_buy_180"):
-        await upsert_main_message(bot, query.message.chat.id, tg_id)
-        await clear_keyboard(bot, query.message.chat.id, query.message.message_id)
-
-        if data == "stars_buy_30":
-            await send_stars_invoice(bot, query.message.chat.id, tg_id, SUB_DAYS_30, STARS_PRICE_30, lang)
-        elif data == "stars_buy_90":
-            await send_stars_invoice(bot, query.message.chat.id, tg_id, SUB_DAYS_90, STARS_PRICE_90, lang)
-        elif data == "stars_buy_180":
-            await send_stars_invoice(bot, query.message.chat.id, tg_id, SUB_DAYS_180, STARS_PRICE_180, lang)
-        return
-
-    # Buy buttons now show payment method choice
     if data in ("buy", "buy_30", "buy_90", "buy_180"):
         if not SERVER_IP or not VLESS_PBK or not VLESS_SID:
             await bot.send_message(query.message.chat.id, t("config_not_set", lang))
             return
 
-        # Map tariff to buy/ton callback keys
-        tariff_key = data if data != "buy" else "buy_30"
-        mapping = {"buy_30": "buy_30", "buy_90": "buy_90", "buy_180": "buy_180"}
-
-        await upsert_main_message(bot, query.message.chat.id, tg_id)
-        await clear_keyboard(bot, query.message.chat.id, query.message.message_id)
-
-        # Show payment method choice
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t("btn_pay_stars", lang), callback_data=f"stars_{tariff_key}")],
-            [InlineKeyboardButton(text=t("btn_pay_ton", lang), callback_data=f"ton_{tariff_key}")],
-        ])
-        await bot.send_message(
-            query.message.chat.id,
-            f"{t('payment_method_choice', lang)}\n\n"
-            f"⭐ {t('stars_desc', lang)}\n\n"
-            f"💎 {t('main_payment', lang)}",
-            reply_markup=kb,
-        )
-        return
-
-    # TON payment callbacks (after user chose CryptoBot)
-    if data in ("ton_buy_30", "ton_buy_90", "ton_buy_180"):
-        await upsert_main_message(bot, query.message.chat.id, tg_id)
-        await clear_keyboard(bot, query.message.chat.id, query.message.message_id)
-
-        # detect promo
+        # detect promo: use last redeemed code if exists
         promo_code = None
         with db() as conn:
             row = conn.execute(
@@ -1981,27 +1764,15 @@ async def on_callback(query: CallbackQuery):
             if row:
                 promo_code = str(row["code"])
 
-        if data == "ton_buy_30":
+        if data in ("buy", "buy_30"):
             await create_invoice_for_days(SUB_DAYS_30, PRICE_USDT_30, promo_code)
-        elif data == "ton_buy_90":
-            await create_invoice_for_days(SUB_DAYS_90, PRICE_USDT_90, promo_code)
-        elif data == "ton_buy_180":
-            await create_invoice_for_days(SUB_DAYS_180, PRICE_USDT_180, promo_code)
-        return
-
-    # Check button with specific invoice_id (e.g. from proxy purchase)
-    if data.startswith("check_"):
-        invoice_id = data[6:]
-        inv = None
-        with db() as conn:
-            inv = conn.execute(
-                "SELECT * FROM invoices WHERE invoice_id=? AND tg_id=? ORDER BY id DESC LIMIT 1",
-                (invoice_id, tg_id),
-            ).fetchone()
-        if not inv:
-            await bot.send_message(query.message.chat.id, t("no_invoices", lang))
             return
-        data = "check"
+        if data == "buy_90":
+            await create_invoice_for_days(SUB_DAYS_90, PRICE_USDT_90, promo_code)
+            return
+        if data == "buy_180":
+            await create_invoice_for_days(SUB_DAYS_180, PRICE_USDT_180, promo_code)
+            return
 
     if data == "check":
         inv = latest_invoice(tg_id)
@@ -2019,10 +1790,8 @@ async def on_callback(query: CallbackQuery):
                 "SELECT * FROM invoices WHERE tg_id=? AND status='paid' ORDER BY id DESC LIMIT 1",
                 (tg_id,),
             ).fetchone()
-        if paid:
-            sub = latest_sub(tg_id)
-            if not sub or sub["expires_at"] < int(time.time()) - 60:
-                inv = paid
+        if paid and (not latest_sub(tg_id) or latest_sub(tg_id)["expires_at"] < int(time.time()) - 60):
+            inv = paid
 
         log.info("check invoice_id=%s status_in_db=%s", inv["invoice_id"], inv["status"])
         res = await cryptobot_request("getInvoices", {"invoice_ids": [inv["invoice_id"]]})
@@ -2063,8 +1832,8 @@ async def on_callback(query: CallbackQuery):
                 meta = json.loads(inv["meta"])
                 days = int(meta.get("days") or days)
                 bonus_days = int(meta.get("bonus_days") or 0)
-        except Exception as e:
-            log.warning(f'ex: {e}')
+        except Exception:
+            pass
 
         await provision_access(bot, query.message.chat.id, tg_id, days=days, bonus_days=bonus_days)
         with db() as conn:
@@ -2094,7 +1863,7 @@ async def on_callback(query: CallbackQuery):
             return
 
         client_uuid = create_client_id(email=f"trial-tg{tg_id}")
-        sub = create_or_extend_sub_trial(tg_id, client_uuid, TRIAL_DAYS)
+        sub = create_or_extend_sub_trial(tg_id, client_uuid, TRIAL_MINUTES)
         set_trial_used(tg_id)
 
         ok, msg = rebuild_and_restart_xray()
@@ -2106,7 +1875,7 @@ async def on_callback(query: CallbackQuery):
         png = qr_png_bytes(link)
         await bot.send_message(
             query.message.chat.id,
-            t("trial_activated", lang, TRIAL_DAYS) + "\n" +
+            t("trial_activated", lang, TRIAL_MINUTES) + "\n" +
             f"{t('trial_active_until', lang)} {time.strftime('%Y-%m-%d %H:%M', time.localtime(sub['expires_at']))}\n\n" +
             t("trial_like_it", lang),
         )
@@ -2175,7 +1944,7 @@ async def on_callback(query: CallbackQuery):
 
         # Generate new WG keys
         try:
-            wg_priv = (await asyncio.to_thread(subprocess.run, ["wg", "genkey"], capture_output=True, text=True, timeout=5)).stdout.strip()
+            wg_priv = subprocess.run(["wg", "genkey"], capture_output=True, text=True, timeout=5).stdout.strip()
             wg_ip = get_next_wg_ip()
             ok, pubkey_or_err = add_wg_peer(wg_priv, wg_ip)
             if not ok:
@@ -2264,10 +2033,10 @@ async def on_callback(query: CallbackQuery):
         proxy_sub = latest_sub_type(tg_id, 'proxy')
         if proxy_sub and proxy_sub["active"] and proxy_sub["expires_at"] > int(time.time()):
             expires = time.strftime('%Y-%m-%d %H:%M', time.localtime(proxy_sub['expires_at']))
-            await bot.send_message(query.message.chat.id, t("proxy_access", lang).format(
-                server=PROXY_SERVER, port=PROXY_PORT, secret=PROXY_SECRET, expires=expires))
+            await bot.send_message(query.message.chat.id, t("proxy_access", lang).format(expires))
             return
         # Показать описание и кнопку покупки
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=t("btn_proxy", lang), callback_data="buy_proxy_l1")],
         ])
@@ -2275,75 +2044,18 @@ async def on_callback(query: CallbackQuery):
         return
 
     if data == "buy_proxy_l1":
-        await upsert_main_message(bot, query.message.chat.id, tg_id)
         await clear_keyboard(bot, query.message.chat.id, query.message.message_id)
-        # Show payment method choice for proxy
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t("btn_pay_stars", lang), callback_data="stars_buy_proxy")],
-            [InlineKeyboardButton(text=t("btn_pay_ton", lang), callback_data="ton_buy_proxy")],
-        ])
-        await bot.send_message(
-            query.message.chat.id,
-            f"{t('payment_method_choice', lang)}\n\n"
-            f"⭐ {t('stars_desc', lang)}\n\n"
-            f"💎 {t('main_payment', lang)}",
-            reply_markup=kb,
-        )
-        return
-
-    # ── Proxy payment callbacks ──
-    if data == "stars_buy_proxy":
-        await upsert_main_message(bot, query.message.chat.id, tg_id)
-        await clear_keyboard(bot, query.message.chat.id, query.message.message_id)
-        await send_stars_invoice(bot, query.message.chat.id, tg_id, 30, STARS_PRICE_PROXY, lang, sub_type="proxy")
-        return
-
-    if data == "ton_buy_proxy":
-        await upsert_main_message(bot, query.message.chat.id, tg_id)
-        await clear_keyboard(bot, query.message.chat.id, query.message.message_id)
-        # Получить курс TON
-        ton_amount = await get_ton_price_for_usdt(0.50)
-        # Создать инвойс через CryptoBot
-        inv = await cryptobot_request(
-            "createInvoice",
-            {
-                "asset": "TON",
-                "amount": str(ton_amount),
-                "description": "MTProto Proxy 30 days",
-                "allow_anonymous": False,
-            },
-        )
-        if not inv or "invoice_id" not in inv:
-            await bot.send_message(query.message.chat.id, t("invoice_error", lang))
-            return
-        invoice_id = str(inv["invoice_id"])
-        pay_url = inv["pay_url"]
-        # Сохранить инвойс в БД
-        import json
-        meta = json.dumps({"type": "proxy", "days": 30}, ensure_ascii=False)
+        # Создаём подписку proxy на 30 дней
+        now = int(time.time())
+        new_uuid = "proxy_" + str(tg_id)
         with db() as conn:
             conn.execute(
-                "INSERT INTO invoices (tg_id, invoice_id, asset, amount, status, created_at, meta) VALUES (?,?,?,?,?,?,?)",
-                (tg_id, invoice_id, "TON", float(ton_amount), "active", int(time.time()), meta),
+                "INSERT INTO subscriptions (tg_id, uuid, active, expires_at, sub_type, created_at) VALUES (?,?,1,?,?,?)",
+                (tg_id, new_uuid, now + 30*86400, 'proxy', now)
             )
             conn.commit()
-        # Запустить фоновую проверку
-        if tg_id in AUTO_CHECK_TASKS:
-            old = AUTO_CHECK_TASKS[tg_id]
-            if not old.done():
-                old.cancel()
-        AUTO_CHECK_TASKS[tg_id] = asyncio.create_task(auto_check_invoice(bot, query.message.chat.id, tg_id, invoice_id))
-        AUTO_CHECK_TASKS[tg_id].add_done_callback(lambda t, tid=tg_id: AUTO_CHECK_TASKS.pop(tid, None))
-        # Показать кнопку проверки
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t("btn_check", lang), callback_data=f"check_{invoice_id}")],
-            [InlineKeyboardButton(text=t("btn_support", lang), callback_data="support")],
-        ])
-        await bot.send_message(
-            query.message.chat.id,
-            t("invoice_msg", lang).format(amount=ton_amount, currency="TON", usd="0.50"),
-            reply_markup=kb
-        )
+        expires = time.strftime('%Y-%m-%d %H:%M', time.localtime(now + 30*86400))
+        await bot.send_message(query.message.chat.id, t("proxy_access", lang).format(expires))
         return
 
     if data == "support":
@@ -2360,7 +2072,7 @@ async def on_callback(query: CallbackQuery):
 
 # ── Improvement #3: Subscription expiry notifications ──
 
-def _get_expiring_subscriptions(now: int) -> list[tuple[dict, int]]:
+def _get_expiring_subscriptions(now: int) -> list[sqlite3.Row]:
     """Return active subscriptions that expire within the notification windows."""
     with db() as conn:
         # Build a query that checks each notification window
@@ -2478,8 +2190,8 @@ def _rotate_backups():
             if os.path.getmtime(fpath) < cutoff:
                 os.unlink(fpath)
                 log.info("Backup rotated out: %s", f)
-    except Exception as e:
-        log.warning(f'ex: {e}')
+    except Exception:
+        pass
 
 
 def list_backups() -> list[str]:
@@ -2490,18 +2202,13 @@ def list_backups() -> list[str]:
             reverse=True
         )
         return files
-    except Exception as e:
-        log.debug(f"list_backups failed: {e}")
+    except Exception:
         return []
 
 
 def restore_backup(filename: str) -> tuple[bool, str]:
     """Restore from a backup file. Returns (ok, message)."""
-    # Prevent path traversal
-    filename = os.path.basename(filename)
     path = os.path.join(BACKUP_DIR, filename)
-    if not os.path.realpath(path).startswith(os.path.realpath(BACKUP_DIR)):
-        return False, "Invalid filename"
     if not os.path.exists(path):
         return False, "File not found"
     try:
@@ -2544,7 +2251,7 @@ async def cmd_test(message: Message):
     # 1. Ping
     if SERVER_IP:
         try:
-            r = await asyncio.to_thread(subprocess.run, ["ping", "-c", "1", "-W", "2", SERVER_IP],
+            r = subprocess.run(["ping", "-c", "1", "-W", "2", SERVER_IP],
                              capture_output=True, text=True, timeout=5)
             ok = r.returncode == 0
             icon = t("test_ok" if ok else "test_fail", lang)
@@ -2563,7 +2270,7 @@ async def cmd_test(message: Message):
     # 2. VLESS port
     if SERVER_IP and VLESS_PORT:
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock = __import__('socket').socket(__import__('socket').AF_INET, __import__('socket').SOCK_STREAM)
             sock.settimeout(3)
             result = sock.connect_ex((SERVER_IP, VLESS_PORT))
             sock.close()
@@ -2578,7 +2285,7 @@ async def cmd_test(message: Message):
     # 3. WG port
     if SERVER_IP and WG_PORT:
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock = __import__('socket').socket(__import__('socket').AF_INET, __import__('socket').SOCK_STREAM)
             sock.settimeout(3)
             result = sock.connect_ex((SERVER_IP, WG_PORT))
             sock.close()
@@ -2590,7 +2297,7 @@ async def cmd_test(message: Message):
 
     # 4. Xray service
     try:
-        r = await asyncio.to_thread(subprocess.run, ["systemctl", "is-active", XRAY_SERVICE],
+        r = subprocess.run(["systemctl", "is-active", XRAY_SERVICE],
                          capture_output=True, text=True, timeout=5)
         ok = r.stdout.strip() == "active"
         icon = t("test_ok" if ok else "test_fail", lang)
@@ -2611,22 +2318,22 @@ async def cmd_test(message: Message):
     try:
         load = os.getloadavg()
         lines.append(f"{t('test_cpu', lang)}: {load[0]:.1f} / {load[1]:.1f} / {load[2]:.1f}")
-    except Exception as e:
-        log.warning(f'ex: {e}')
+    except Exception:
+        pass
     try:
         mem = get_mem_mb()
         lines.append(f"{t('test_mem', lang)}: {mem:.0f} MB")
-    except Exception as e:
-        log.warning(f'ex: {e}')
+    except Exception:
+        pass
     try:
-        disk = (await asyncio.to_thread(subprocess.run, ["df", "-h", "/"], capture_output=True, text=True, timeout=5)).stdout
-        for line in disk.strip().split("\n")[1:]:
+        disk = subprocess.run(["df", "-h", "/"], capture_output=True, text=True, timeout=5)
+        for line in disk.stdout.strip().split("\n")[1:]:
             parts = line.split()
             if len(parts) >= 5:
                 lines.append(f"{t('test_disk', lang)}: {parts[2]}/{parts[1]} ({parts[4]})")
                 break
-    except Exception as e:
-        log.warning(f'ex: {e}')
+    except Exception:
+        pass
 
     await status.edit_text("\n".join(lines))
 
@@ -2727,73 +2434,6 @@ async def main():
     dp.message.register(cmd_health_handler, F.text == "/health")
     dp.message.register(cmd_lang_handler, F.text == "/lang")
     dp.message.register(cmd_test, F.text == "/test")
-
-    # ── Telegram Stars payment handlers ──
-    from aiogram.types import PreCheckoutQuery
-
-    @dp.pre_checkout_query()
-    async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery):
-        """Always accept pre-checkout queries for Stars payments."""
-        log.info("pre_checkout_query: id=%s from=%s amount=%s currency=%s",
-                 pre_checkout_query.id, pre_checkout_query.from_user.id,
-                 pre_checkout_query.total_amount, pre_checkout_query.currency)
-        await pre_checkout_query.answer(ok=True)
-
-    @dp.message(F.successful_payment)
-    async def on_successful_payment(message: Message):
-        """Handle successful Stars payment — provision VPN or proxy."""
-        tg_id = message.from_user.id
-        chat_id = message.chat.id
-        import json
-
-        try:
-            payload = json.loads(message.successful_payment.invoice_payload)
-            days = int(payload.get("days", SUB_DAYS_30))
-            sub_type = str(payload.get("sub_type", "vless"))
-        except Exception:
-            days = SUB_DAYS_30
-            sub_type = "vless"
-
-        # Get user language
-        lang = "ru"
-        try:
-            _conn = db()
-            lang = get_lang(_conn, tg_id)
-            _conn.close()
-        except Exception:
-            pass
-
-        charge_id = message.successful_payment.telegram_payment_charge_id
-        log.info("Stars payment: tg=%s days=%s type=%s charge=%s", tg_id, days, sub_type, charge_id)
-
-        if sub_type == "proxy":
-            # Provision proxy access
-            import time as _time
-            now = int(_time.time())
-            new_uuid = "proxy_" + str(tg_id)
-            with db() as conn:
-                conn.execute(
-                    "INSERT INTO subscriptions (tg_id, uuid, active, expires_at, sub_type, created_at) VALUES (?,?,1,?,?,?)",
-                    (tg_id, new_uuid, now + days*86400, 'proxy', now)
-                )
-                conn.commit()
-            expires_str = _time.strftime('%Y-%m-%d %H:%M', _time.localtime(now + days*86400))
-            await bot.send_message(
-                chat_id,
-                t("proxy_access", lang).format(
-                    server=PROXY_SERVER, port=PROXY_PORT, secret=PROXY_SECRET, expires=expires_str),
-                reply_markup=kb_main(lang),
-            )
-        else:
-            # Provision VLESS VPN
-            await provision_access(bot, chat_id, tg_id, days=days)
-
-            # Confirmation message
-            await bot.send_message(
-                chat_id,
-                t("stars_payment_confirmed", lang, charge_id),
-                reply_markup=kb_main(lang),
-            )
 
     dp.callback_query.register(on_callback)
 

@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
 VPN Live Traffic Monitor
-Checks: xray service, Reality port, live traffic rate, recent errors,
-        conntrack overflow detection (auto-restart on >500 dead sessions).
+Checks: vpn-core-xray service (VLESS+REALITY on :4443), Reality port,
+        live traffic rate, recent errors, conntrack overflow detection
+        (auto-restart on >500 dead sessions).
 
 Usage: python3 vpn-watch.py        # one-shot check → writes JSON
        python3 vpn-watch.py --live # one-shot + print to stdout
 
 Cron: */5 * * * * /opt/vpn-core/vpn-watch.py
+
+NOTE: x-ui migration (2026-10-01) was rolled back — x-ui stopped 2026-10-10,
+      live setup is back to mtproto-proxy (:443) + vpn-core-xray (:4443).
 """
 
 import json
@@ -190,8 +194,13 @@ def main():
     with open(STATUS_FILE, "w") as f:
         json.dump(status, f)
 
+    # MTProto proxy
+    mtproto, _ = run(["systemctl", "is-active", "mtproto-proxy"])
+    status["mtproto_proxy"] = mtproto
+
     if "--live" in sys.argv:
-        print(f"Service:  {service}")
+        print(f"Xray:     {service}")
+        print(f"MTProto:  {mtproto}")
         print(f"Port {PORT}:  {port}")
         print(f"Traffic:  {'✅ ACTIVE' if active else '⚠️ IDLE'} "
               f"({format_bytes(rx_rate)}↓ {format_bytes(tx_rate)}↑)")
@@ -201,7 +210,7 @@ def main():
             print("🔄 Xray restarted due to conntrack overflow!")
         print(f"Status → {STATUS_FILE}")
 
-    is_healthy = service == "active" and port == "open" and active
+    is_healthy = service == "active" and port == "open"
     return 0 if is_healthy else 1
 
 

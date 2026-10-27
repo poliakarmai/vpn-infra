@@ -1,16 +1,19 @@
 [Unit]
-Description=VPN Seller Bot (CryptoBot TON -> 3x-ui VLESS)
-After=network-online.target
-Wants=network-online.target
+Description=VPN Seller Telegram Bot
+After=network.target vpn-core-xray.service
+Wants=vpn-core-xray.service
 
 [Service]
 Type=simple
+User=vpn-bot
+Group=vpn-bot
 WorkingDirectory=/opt/vpn-seller-bot
-ExecStart=/opt/vpn-seller-bot/.venv/bin/python /opt/vpn-seller-bot/bot.py
-Restart=on-failure
-RestartSec=2
-NoNewPrivileges=true
-PrivateTmp=true
+EnvironmentFile=/opt/vpn-seller-bot/.env
+ExecStart=/opt/vpn-seller-bot/.venv/bin/python3 /opt/vpn-seller-bot/bot.py
+Restart=always
+RestartSec=3
+ProtectHome=yes
+ReadWritePaths=/opt/vpn-seller-bot /opt/vpn-seller-bot/data /opt/vpn-seller-bot/backups /opt/vpn-core/conf
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

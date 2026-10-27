@@ -118,13 +118,22 @@ def check_bot() -> dict:
                   "--no-pager"])
     low = out
 
-    if "TelegramUnauthorizedError" in low or "Unauthorized" in low:
+    # Учитываем ТОЛЬКО хвост лога после последнего успешного старта polling.
+    # Иначе старые строки Unauthorized (до фикса токена) в 30-мин окне дают
+    # ложный алерт, даже когда бот уже переподключился (фикс 10.10.2026).
+    tail = low
+    marker = "Run polling for bot"
+    idx = low.rfind(marker)
+    if idx != -1:
+        tail = low[idx:]
+
+    if "TelegramUnauthorizedError" in tail or "Unauthorized" in tail:
         return {"alive": False, "reason": "TelegramUnauthorizedError (токен отозван/мёртв)"}
 
-    if "TelegramConflictError" in low:
+    if "TelegramConflictError" in tail:
         return {"alive": False, "reason": "TelegramConflictError (второй инстанс бота)"}
 
-    failed_count = low.count("Failed to fetch updates")
+    failed_count = tail.count("Failed to fetch updates")
     if failed_count > FAILED_FETCH_LIMIT:
         return {"alive": False,
                 "reason": f"{failed_count}× Failed to fetch updates (сеть к Telegram нестабильна)"}

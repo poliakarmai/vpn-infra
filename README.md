@@ -34,19 +34,28 @@ VLESS+REALITY VPN с Telegram-ботом для продажи ключей. П�
 ## Структура
 
 ```
-vpn-core/           — Xray конфигурация и мониторинг
-vpn-seller-bot/     — Telegram-бот продажи ключей
-systemd/            — Systemd-юниты
+bot.py              — Telegram-бот @Poliakarbot (прод: /opt/vpn-seller-bot/bot.py)
+admin_key.py        — CLI выдачи ключей (прод: /opt/vpn-seller-bot/admin_key.py)
+requirements.txt    — зависимости бота
+vpn-core/
+  vpn-watch.py      — мониторинг Xray (крон: ~/.hermes/scripts/vpn-watch.py)
+  vpn-bot-watch.py  — watchdog бота (крон: ~/.hermes/scripts/vpn-bot-watch.py)
+  config.template.json — шаблон Xray (реальный конфиг в /opt/vpn-core/conf/)
+systemd/            — юниты (прод: /etc/systemd/system/)
+scripts/            — разовые утилиты (vpn-broadcast.py — рассылка по базе)
 openwiki/           — OpenWiki-документация
 ```
+
+**Прод — источник правды.** Репо синхронизируется с сервера, не наоборот: файлы,
+которые правятся на месте (`bot.py`, watchdog-скрипты, юниты), копируются в репо
+после правки. Секреты и данные (`.env`, `config.json`, `*.sqlite`) — только на сервере.
 
 ## Быстрый старт (разработка)
 
 ```bash
-cd vpn-seller-bot
 pip install -r requirements.txt
 cp .env.example .env  # заполнить TELEGRAM_BOT_TOKEN, CRYPTOBOT_TOKEN, SERVER_IP, etc.
-python bot.py
+python3 bot.py
 ```
 
 ## Деплой (продакшен)

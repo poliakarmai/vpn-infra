@@ -31,3 +31,8 @@ backups/
 # Runtime dirs
 .venv/
 data/
+
+# Local tooling
+.claude/
+.mcp.json
+.repowise/
