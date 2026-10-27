@@ -20,12 +20,15 @@ import uuid
 from pathlib import Path
 
 # ── Загрузка .env ──
-from dotenv import load_dotenv, find_dotenv
+from dotenv import find_dotenv, load_dotenv
+
 load_dotenv(Path(__file__).resolve().parent / ".env")  # прод: /opt/vpn-seller-bot/.env
 load_dotenv(find_dotenv(usecwd=True) or None)  # fallback: .env в рабочем каталоге
 
 DB_PATH = os.environ.get("DB_PATH", "./data/vpn_seller.sqlite")
 XRAY_CONFIG_PATH = os.environ.get("XRAY_CONFIG_PATH", "/opt/vpn-core/conf/config.json")
+XRAY_TEMPLATE_PATH = os.environ.get("XRAY_TEMPLATE_PATH", "/opt/vpn-core/conf/config.template.json")
+XRAY_BIN = os.environ.get("XRAY_BIN", "/opt/vpn-core/bin/xray")
 XRAY_SERVICE = os.environ.get("XRAY_SERVICE", "vpn-core-xray")
 SERVER_IP = os.environ.get("SERVER_IP", "").strip()
 VLESS_PORT = int(os.environ.get("VLESS_PORT", "4443"))
@@ -47,7 +50,7 @@ def _read_xray_params():
             "sid": rs["shortIds"][0],
             "port": inb["port"],
         }
-    except Exception:
+    except Exception:  # noqa: BLE001 — нечитаемый конфиг не должен ронять выдачу ключа
         return {"sni": VLESS_SNI, "pbk": VLESS_PBK, "sid": VLESS_SID, "port": VLESS_PORT}
 
 
@@ -128,7 +131,7 @@ def rebuild_xray():
     if not clients:
         clients = [{"id": "00000000-0000-0000-0000-000000000000", "email": "disabled"}]
 
-    with open("/opt/vpn-core/conf/config.template.json", "r") as f:
+    with open(XRAY_TEMPLATE_PATH, "r") as f:
         cfg = json.load(f)
     # Sync ALL inbounds with the same clients
     for inbound in cfg["inbounds"]:
@@ -147,8 +150,8 @@ def rebuild_xray():
 
     # Validate
     r = subprocess.run(
-        ["/opt/vpn-core/bin/xray", "run", "-test", "-config", XRAY_CONFIG_PATH],
-        capture_output=True, text=True, timeout=10,
+        [XRAY_BIN, "run", "-test", "-config", XRAY_CONFIG_PATH],
+        capture_output=True, text=True, timeout=10, check=False,
     )
     if r.returncode != 0:
         # Rollback
@@ -176,6 +179,10 @@ def main():
     if not SERVER_IP:
         print("❌ SERVER_IP not set in .env", file=sys.stderr)
         sys.exit(1)
+
+    if args.days <= 0:
+        print(f"❌ days must be > 0, got {args.days}", file=sys.stderr)
+        sys.exit(2)
 
     if args.dry_run:
         # Никаких изменений: ни в БД, ни в Xray. Раньше grant_subscription()

@@ -18,6 +18,7 @@ vpn-core/
   config.template.json ← шаблон Xray; рабочий конфиг — /opt/vpn-core/conf/config.json
 systemd/            ← юниты (прод: /etc/systemd/system/)
 scripts/            ← разовые утилиты (vpn-broadcast.py — рассылка по базе)
+tests/              ← pytest: admin_key.py (БД/Xray подменены), vpn-watch.py
 openwiki/           ← OpenWiki-документация
 ```
 
@@ -28,6 +29,9 @@ openwiki/           ← OpenWiki-документация
 ## Как запускать
 
 ```bash
+# Тесты (прод не трогают: БД, конфиг и бинарник xray — временные)
+/usr/bin/python3 -m pytest -q      # 15 passed
+
 # Бот (системный юнит)
 sudo systemctl status vpn-seller-bot
 
@@ -54,12 +58,15 @@ sudo python3 /opt/vpn-seller-bot/admin_key.py <tg_id> 30
 2. **Пользователи — SSOT в SQLite.** Не дублировать в JSON.
 3. **Conntrack overflow → авто-рестарт.** Мониторинг переполнения conntrack.
 4. **sudo: systemctl + wg.** Остальные команды по паролю.
-5. **`.env` ищем рядом со скриптом**, а не `parent.parent`: `admin_key.py` лежит в `/opt/vpn-seller-bot/` (прод) или в корне репо, `.env` — в `/opt/vpn-seller-bot/.env`. Старый `parent.parent` давал `/opt/.env` → `SERVER_IP not set`.
-6. **`--dry-run` не трогает ни БД, ни Xray.** Флаг проверяется ДО `grant_subscription()`: раньше dry-run оставлял активную подписку-мусор, которая при следующем `rebuild_xray()` попадала в `config.json`.
-7. **Ключ считается выданным только после живого теста:** локальный xray-клиент с этим uuid → `curl -x socks5h://127.0.0.1:<port> https://api.ipify.org` → `2.27.48.142`.
+5. **Пути Xray переопределяются env:** `XRAY_TEMPLATE_PATH`, `XRAY_BIN`, `XRAY_CONFIG_PATH`, `DB_PATH`.
+   Дефолты — прод-значения; в тестах подменяются, поэтому поведение прода не меняется.
+6. **`.env` ищем рядом со скриптом**, а не `parent.parent`: `admin_key.py` лежит в `/opt/vpn-seller-bot/` (прод) или в корне репо, `.env` — в `/opt/vpn-seller-bot/.env`. Старый `parent.parent` давал `/opt/.env` → `SERVER_IP not set`.
+7. **`--dry-run` не трогает ни БД, ни Xray.** Флаг проверяется ДО `grant_subscription()`: раньше dry-run оставлял активную подписку-мусор, которая при следующем `rebuild_xray()` попадала в `config.json`.
+8. **Ключ считается выданным только после живого теста:** локальный xray-клиент с этим uuid → `curl -x socks5h://127.0.0.1:<port> https://api.ipify.org` → `2.27.48.142`.
 
 ## Критерии готовности
 
+- [ ] `/usr/bin/python3 -m pytest -q` → 15 passed (и `ruff check` без ошибок)
 - [ ] `sudo python3 /opt/vpn-seller-bot/admin_key.py <tg_id> 30 --dry-run` — печатает ссылку, подписок в БД не прибавилось
 - [ ] живой тест ключа: `curl` через socks даёт `2.27.48.142`
 - [ ] Бот отвечает на /start
