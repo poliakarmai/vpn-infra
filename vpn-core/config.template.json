@@ -57,10 +57,9 @@
           "serverNames": [
             "www.apple.com"
           ],
-          "privateKey": "mIXgfH_N9-B4SQZcg_WrBffZDXIclaDDzaTB2J-XOlY",
+          "privateKey": "YOUR_X25519_PRIVATE_KEY",
           "shortIds": [
-            "1e1edaeb2f251ae2",
-            "68cb849a82f559a7"
+            "YOUR_SHORT_ID"
           ]
         }
       },
