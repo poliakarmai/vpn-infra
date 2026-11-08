@@ -30,6 +30,8 @@ PRICE_USDT_30 = float(os.environ.get("PRICE_USDT_30", os.environ.get("PRICE_USDT
 PRICE_USDT_90 = float(os.environ.get("PRICE_USDT_90", str(PRICE_USDT_30 * 2.7)))
 PRICE_USDT_180 = float(os.environ.get("PRICE_USDT_180", str(PRICE_USDT_30 * 5.0)))
 PRICE_TON_MIN = float(os.environ.get("PRICE_TON_MIN", "0.1"))
+PRICE_PROXY_USDT = float(os.environ.get("PRICE_PROXY_USDT", "0.5"))
+PROXY_DAYS = int(os.environ.get("PROXY_DAYS", "30"))
 
 SUB_DAYS_30 = 30
 SUB_DAYS_90 = 90
@@ -427,12 +429,16 @@ def init_db():
               active INTEGER NOT NULL,
               wg_ip TEXT,
               wg_privkey TEXT,
-              wg_pubkey TEXT
+              wg_pubkey TEXT,
+              sub_type TEXT DEFAULT 'vless'
             );
             """
         )
         # Migration: add WG columns if missing
         cols = {r[1] for r in conn.execute("PRAGMA table_info(subscriptions)").fetchall()}
+        if "sub_type" not in cols:
+            # старые БД: без этой колонки падают latest_sub()/прокси-выдача
+            conn.execute("ALTER TABLE subscriptions ADD COLUMN sub_type TEXT DEFAULT 'vless'")
         if "wg_ip" not in cols:
             conn.execute("ALTER TABLE subscriptions ADD COLUMN wg_ip TEXT")
         if "wg_privkey" not in cols:
@@ -621,7 +627,8 @@ def create_or_extend_sub(tg_id: int, new_uuid: str, days: int) -> sqlite3.Row:
 
     with db() as conn:
         active = conn.execute(
-            "SELECT * FROM subscriptions WHERE tg_id=? AND active=1 ORDER BY id DESC LIMIT 1",
+            "SELECT * FROM subscriptions WHERE tg_id=? AND active=1 "
+            "AND (sub_type IS NULL OR sub_type='vless') ORDER BY id DESC LIMIT 1",
             (tg_id,),
         ).fetchone()
 
@@ -636,9 +643,14 @@ def create_or_extend_sub(tg_id: int, new_uuid: str, days: int) -> sqlite3.Row:
 
         # else create new
         expires = now + delta
-        conn.execute("UPDATE subscriptions SET active=0 WHERE tg_id=?", (tg_id,))
         conn.execute(
-            "INSERT INTO subscriptions (tg_id, uuid, created_at, expires_at, active) VALUES (?,?,?,?,1)",
+            "UPDATE subscriptions SET active=0 WHERE tg_id=? "
+            "AND (sub_type IS NULL OR sub_type='vless')",
+            (tg_id,),
+        )
+        conn.execute(
+            "INSERT INTO subscriptions (tg_id, uuid, created_at, expires_at, active, sub_type) "
+            "VALUES (?,?,?,?,1,'vless')",
             (tg_id, new_uuid, now, expires),
         )
         conn.commit()
@@ -741,7 +753,8 @@ def list_active_uuids(now: int | None = None) -> list[str]:
     now = now or int(time.time())
     with db() as conn:
         rows = conn.execute(
-            "SELECT uuid FROM subscriptions WHERE active=1 AND expires_at>?",
+            "SELECT uuid FROM subscriptions WHERE active=1 AND expires_at>? "
+            "AND (sub_type IS NULL OR sub_type='vless')",
             (now,),
         ).fetchall()
         return [r["uuid"] for r in rows]
@@ -776,7 +789,12 @@ def write_xray_config_from_template(active_uuids: list[str]):
         # keep config valid: one dummy client
         clients = [{"id": "00000000-0000-0000-0000-000000000000", "email": "disabled"}]
 
-    cfg["inbounds"][0]["settings"]["clients"] = clients
+    # резервный инбаунд 8445 тоже должен получать клиентов, иначе «резервная» ссылка
+    # не работает ни у кого (раньше заполнялся только inbounds[0])
+    for inbound in cfg["inbounds"]:
+        settings = inbound.get("settings") or {}
+        if "clients" in settings:
+            settings["clients"] = clients
 
     tmp_path = XRAY_CONFIG_PATH + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
@@ -885,7 +903,7 @@ def add_wg_peer(client_privkey: str, client_ip: str) -> bool:
         ).stdout.strip()
         with open(WG_CONFIG_PATH, "a") as f:
             f.write(f"\n[Peer]\nPublicKey = {pubkey}\nAllowedIPs = {client_ip}/32\n")
-        subprocess.run(["sudo", "wg", "addconf", "wg0"], input=f"public_key={pubkey}\nallowed_ip={client_ip}/32\n",
+        subprocess.run(["sudo", "wg", "set", "wg0", "peer", pubkey, "allowed-ips", f"{client_ip}/32"],
                        capture_output=True, text=True, timeout=10, check=True)
         return True, pubkey
     except Exception as e:
@@ -1139,6 +1157,86 @@ async def provision_access(bot: Bot, chat_id: int, tg_id: int, days: int = SUB_D
         await bot.send_photo(chat_id, BufferedInputFile(png, filename="vpn.png"))
 
 
+async def provision_proxy(bot: Bot, chat_id: int, tg_id: int, days: int = PROXY_DAYS):
+    """Выдать MTProto-прокси после оплаты.
+
+    Отдельная строка sub_type='proxy' с пустым uuid: прокси не попадает в clients
+    Xray, иначе невалидный id ломает конфиг при rebuild.
+    """
+    lang = "ru"
+    try:
+        _conn = db()
+        lang = get_lang(_conn, tg_id)
+        _conn.close()
+    except Exception:
+        pass
+
+    async with PROVISION_LOCK:
+        now = int(time.time())
+        with db() as conn:
+            row = conn.execute(
+                "SELECT * FROM subscriptions WHERE tg_id=? AND sub_type='proxy' "
+                "AND active=1 AND expires_at>? ORDER BY id DESC LIMIT 1",
+                (tg_id, now),
+            ).fetchone()
+            if row:
+                expires = int(row["expires_at"]) + int(days) * 86400
+                conn.execute("UPDATE subscriptions SET expires_at=? WHERE id=?", (expires, int(row["id"])))
+            else:
+                expires = now + int(days) * 86400
+                conn.execute(
+                    "INSERT INTO subscriptions (tg_id, uuid, active, expires_at, sub_type, created_at) "
+                    "VALUES (?,?,1,?,?,?)",
+                    (tg_id, "", expires, "proxy", now),
+                )
+            conn.commit()
+
+        await bot.send_message(
+            chat_id,
+            t("proxy_access", lang).format(time.strftime('%Y-%m-%d %H:%M', time.localtime(expires))),
+        )
+
+
+async def fulfill_invoice(bot: Bot, chat_id: int, tg_id: int, invoice_id: str) -> bool:
+    """Атомарно забрать оплаченный счёт и выдать доступ. False — уже был выдан.
+
+    fulfilled_at ставится ДО выдачи: UPDATE ... WHERE fulfilled_at IS NULL,
+    rowcount==1 значит гонку выиграли мы. Авто-проверка и кнопка «Проверить
+    оплату» больше не могут начислить дни дважды. При ошибке выдачи отметка
+    снимается, чтобы счёт можно было доисполнить.
+    """
+    with db() as conn:
+        claimed = conn.execute(
+            "UPDATE invoices SET fulfilled_at=? WHERE invoice_id=? AND fulfilled_at IS NULL",
+            (int(time.time()), invoice_id),
+        ).rowcount == 1
+        row = conn.execute("SELECT meta FROM invoices WHERE invoice_id=?", (invoice_id,)).fetchone()
+        conn.commit()
+
+    if not claimed:
+        return False
+
+    try:
+        meta = json.loads((row["meta"] if row else None) or "{}")
+    except Exception:
+        meta = {}
+
+    days = int(meta.get("days") or SUB_DAYS_30)
+    kind = str(meta.get("kind") or "vless").lower()
+
+    try:
+        if kind == "proxy":
+            await provision_proxy(bot, chat_id, tg_id, days=days)
+        else:
+            await provision_access(bot, chat_id, tg_id, days=days, bonus_days=int(meta.get("bonus_days") or 0))
+    except Exception:
+        with db() as conn:
+            conn.execute("UPDATE invoices SET fulfilled_at=NULL WHERE invoice_id=?", (invoice_id,))
+            conn.commit()
+        raise
+    return True
+
+
 async def auto_check_invoice(bot: Bot, chat_id: int, tg_id: int, invoice_id: str):
     """Poll CryptoBot for invoice status and auto-provision on paid."""
     lang = "ru"
@@ -1171,33 +1269,7 @@ async def auto_check_invoice(bot: Bot, chat_id: int, tg_id: int, invoice_id: str
                     conn.commit()
 
                 if status == "paid":
-                    # Determine tariff from invoice meta (if any)
-                    days = SUB_DAYS_30
-                    bonus_days = 0
-                    already = False
-                    try:
-                        with db() as conn:
-                            row = conn.execute("SELECT meta, fulfilled_at FROM invoices WHERE invoice_id=?", (invoice_id,)).fetchone()
-                        if row and row["fulfilled_at"]:
-                            already = True
-                        if row and row["meta"]:
-                            import json
-                            meta = json.loads(row["meta"])
-                            days = int(meta.get("days") or days)
-                            bonus_days = int(meta.get("bonus_days") or 0)
-                    except Exception:
-                        pass
-
-                    if already:
-                        return
-
-                    await provision_access(bot, chat_id, tg_id, days=days, bonus_days=bonus_days)
-                    with db() as conn:
-                        conn.execute(
-                            "UPDATE invoices SET fulfilled_at=? WHERE invoice_id=? AND fulfilled_at IS NULL",
-                            (int(time.time()), invoice_id),
-                        )
-                        conn.commit()
+                    await fulfill_invoice(bot, chat_id, tg_id, invoice_id)
                     return
 
             await asyncio.sleep(AUTOCHECK_POLL_INTERVAL)
@@ -1684,7 +1756,8 @@ async def on_callback(query: CallbackQuery):
     except Exception:
         pass
 
-    async def create_invoice_for_days(days: int, usdt_price: float, promo_code: str | None = None):
+    async def create_invoice_for_days(days: int, usdt_price: float, promo_code: str | None = None,
+                                      kind: str = "vless", title: str | None = None):
         # apply promo if present
         bonus_days = 0
         promo_desc = ""
@@ -1693,7 +1766,7 @@ async def on_callback(query: CallbackQuery):
             final_usdt, bonus_days, promo_desc = promo_apply_price(usdt_price, promo_code)
 
         ton_amount = await get_ton_price_for_usdt(final_usdt)
-        desc = f"VPN {days} days"
+        desc = title or f"VPN {days} days"
         if promo_desc:
             desc += f" ({promo_desc})"
 
@@ -1718,6 +1791,7 @@ async def on_callback(query: CallbackQuery):
                 "final_usdt": final_usdt,
                 "promo": promo_code,
                 "bonus_days": bonus_days,
+                "kind": kind,
             },
             ensure_ascii=False,
         )
@@ -1819,29 +1893,9 @@ async def on_callback(query: CallbackQuery):
             return
 
         log.info("invoice paid -> provisioning")
-        # idempotency: don't grant twice
-        if inv["fulfilled_at"]:
+        # idempotency: fulfill_invoice сам решает, выдавать ли (fulfilled_at атомарно)
+        if not await fulfill_invoice(bot, query.message.chat.id, tg_id, inv["invoice_id"]):
             await bot.send_message(query.message.chat.id, t("payment_processed", lang))
-            return
-
-        days = SUB_DAYS_30
-        bonus_days = 0
-        try:
-            if inv["meta"]:
-                import json
-                meta = json.loads(inv["meta"])
-                days = int(meta.get("days") or days)
-                bonus_days = int(meta.get("bonus_days") or 0)
-        except Exception:
-            pass
-
-        await provision_access(bot, query.message.chat.id, tg_id, days=days, bonus_days=bonus_days)
-        with db() as conn:
-            conn.execute(
-                "UPDATE invoices SET fulfilled_at=? WHERE invoice_id=? AND fulfilled_at IS NULL",
-                (int(time.time()), inv["invoice_id"]),
-            )
-            conn.commit()
         return
 
     if data == "status":
@@ -2044,18 +2098,8 @@ async def on_callback(query: CallbackQuery):
         return
 
     if data == "buy_proxy_l1":
-        await clear_keyboard(bot, query.message.chat.id, query.message.message_id)
-        # Создаём подписку proxy на 30 дней
-        now = int(time.time())
-        new_uuid = "proxy_" + str(tg_id)
-        with db() as conn:
-            conn.execute(
-                "INSERT INTO subscriptions (tg_id, uuid, active, expires_at, sub_type, created_at) VALUES (?,?,1,?,?,?)",
-                (tg_id, new_uuid, now + 30*86400, 'proxy', now)
-            )
-            conn.commit()
-        expires = time.strftime('%Y-%m-%d %H:%M', time.localtime(now + 30*86400))
-        await bot.send_message(query.message.chat.id, t("proxy_access", lang).format(expires))
+        # платный продукт: только через счёт, как и VLESS. Выдача — в fulfill_invoice(kind=proxy)
+        await create_invoice_for_days(PROXY_DAYS, PRICE_PROXY_USDT, kind="proxy", title="MTProto proxy")
         return
 
     if data == "support":
